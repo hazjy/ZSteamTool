@@ -33,8 +33,8 @@
 ## 4. 已知问题（env-less 启动器游戏）
 
 - 现象：Steam 启动带第三方启动器（Ubisoft Connect / Epic / Rockstar）的游戏 → 真实游戏 exe 由启动器拉起（**无 SteamAppId 环境变量**）→ `ProcessInspector` 判 `likelyGameProcess=false` → `DenuvoAuth::Apply`（DenuvoAuth.cpp:169）直接 return → 授权/身份伪造不生效 → Denuvo 游戏**静默退出**（88500012 / error 54）；
-- 上游修复：**PR #148**（`GetAppIDForCurrentPipe` 重试兜底 + Lua `addprocess/appid, "Exe.exe"` 映射 + `forcedenuvo()` + `gameProcess = likelyGameProcess || trackedApp`）；本仓库基线（2a08b0b）未含 → **待移植**（排期见 agents-log）；
-- 移植范围（最小集，排除 eticket/结构性扫描附加特性）：`Pipe/PipeManager.cpp`、`Utils/Config/LuaConfig.{cpp,h}`、`Pipe/Features/DenuvoAuth/DenuvoAuth.cpp`。
+- 上游修复：**PR #148**（`GetAppIDForCurrentPipe` 重试兜底 + Lua `addprocess/appid, "Exe.exe"` 映射 + `forcedenuvo()` + `gameProcess = likelyGameProcess || trackedApp`）；**已移植（2026-09-06，commit 135a110）**——最小集（PipeManager 兜底 + LuaConfig addprocess + DenuvoAuth 门放宽），排除 eticket/结构性扫描附加特性；
+- 移植后的构建验证：**待本机 VS18 C++ 工具集组件补装**（当前 MSB8020 v143/v180 均报未安装 + CMake 探测死锁，属环境问题非代码）；补装 "MSVC v143 (VS2022) C++ 生成工具" 后即可验证。
 
 ## 5. DenuvoAuth 模块说明（守门员）
 
