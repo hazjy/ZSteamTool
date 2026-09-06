@@ -4,10 +4,13 @@
 #include "Pipe/ProcessInspector.h"
 #include "Pipe/Features/DenuvoAuth/DenuvoAuth.h"
 #include "Pipe/Features/Injection/Injection.h"
+#include "Hook/Hooks_Misc.h"
 #include "Utils/Logging/Log.h"
 #include "Utils/Config/LuaConfig.h"
 
+#include <chrono>
 #include <optional>
+#include <thread>
 #include <unordered_map>
 
 namespace PipeManager {
@@ -44,6 +47,33 @@ namespace {
         return snapshot;
     }
 
+    // Env-based appid first. Falls back to the steamclient pipe's own appid
+    // (GetAppIDForCurrentPipe), which can lag the handshake by a few ms for
+    // launcher-spawned env-less games; then to the explicit addprocess()
+    // process-name mapping. Mirrors upstream PR #148's ordering.
+    constexpr int kAppIdResolveRetries = 10;
+    constexpr std::chrono::milliseconds kAppIdResolveRetryDelay{20};
+    AppId_t ResolveAppIdWithRetry(const ProcessInspector::ProcessSnapshot& snapshot) {
+        if (const AppId_t envAppId = snapshot.ResolveAppId(); envAppId != k_uAppIdInvalid)
+            return envAppId;
+        for (int attempt = 0; attempt < kAppIdResolveRetries; ++attempt) {
+            const AppId_t pipeAppId = Hooks_Misc::ResolveAppId();
+            if (pipeAppId != k_uAppIdInvalid) {
+                LOG_PIPE_DEBUG("PipeManager: appid resolved from pipe on attempt={} appid={}", attempt, pipeAppId);
+                return pipeAppId;
+            }
+            std::this_thread::sleep_for(kAppIdResolveRetryDelay);
+        }
+        if (!snapshot.imageName.empty()) {
+            const AppId_t configAppId = LuaConfig::GetAppIdForProcess(snapshot.imageName);
+            if (configAppId != k_uAppIdInvalid) {
+                LOG_PIPE_DEBUG("PipeManager: appid from addprocess image={} appid={}", snapshot.imageName, configAppId);
+                return configAppId;
+            }
+        }
+        return k_uAppIdInvalid;
+    }
+
 } // namespace
 
 void OnHandshake(CPipeClient* pipe) {
@@ -67,7 +97,7 @@ void OnHandshake(CPipeClient* pipe) {
         return;
     }
 
-    const AppId_t appId = snapshot.ResolveAppId();
+    const AppId_t appId = ResolveAppIdWithRetry(snapshot);
     const bool trackedApp = appId != k_uAppIdInvalid && LuaConfig::HasDepot(appId, false);
 
     PipeContext ctx{};

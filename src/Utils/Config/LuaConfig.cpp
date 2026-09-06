@@ -42,6 +42,8 @@ namespace LuaConfig{
     // Per-appId purchase time: max(mtime) across every file that currently contributes it.
     // Simple variant: never lowered on UnloadFile unless the refcount drops to zero.
     static std::unordered_map<AppId_t, uint32_t> g_purchaseTime;
+    // addprocess(appid, "exe.exe") mapping (lowercased exe name -> appid).
+    static std::unordered_map<std::string, AppId_t> g_processNameToAppId;
     // Depot IDs removed by UnloadFile / added by ParseFile, consumed by NotifyLicenseChanged.
     static std::vector<AppId_t> g_pendingRemovals;
     static std::vector<AppId_t> g_pendingAdditions;
@@ -232,6 +234,27 @@ namespace LuaConfig{
         }
 
         return 0;
+    }
+
+    // addprocess(appid, "exe.exe") — map a launcher-spawned child process name to
+    // an appid (env-less games started by Ubisoft/Epic/… launchers carry no SteamAppId).
+    // See PipeManager::ResolveAppIdWithRetry for the lookup side.
+    static int lua_addprocess(lua_State* L) {
+        if (lua_gettop(L) < 2 || !lua_isinteger(L, 1) || !lua_isstring(L, 2))
+            return luaL_error(L, "addprocess: need appid, exe name");
+        lua_Integer value = lua_tointeger(L, 1);
+        if (value < 0 || value > UINT32_MAX) return luaL_error(L, "addprocess: appid out of range");
+        std::string name = lua_tostring(L, 2);
+        for (auto& ch : name) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        g_processNameToAppId[name] = static_cast<AppId_t>(value);
+        return 0;
+    }
+
+    AppId_t GetAppIdForProcess(std::string_view imageName) {
+        std::string lowered(imageName);
+        for (auto& ch : lowered) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        auto it = g_processNameToAppId.find(lowered);
+        return it == g_processNameToAppId.end() ? k_uAppIdInvalid : it->second;
     }
 
     static int lua_addtoken(lua_State* L) {
@@ -443,6 +466,7 @@ namespace LuaConfig{
         // (e.g. setAppTICKET, addAppId, SETManifestid, etc.).
         register_func(g_lua_state, "addappid", lua_addappid);
         register_func(g_lua_state, "addtoken", lua_addtoken);
+        register_func(g_lua_state, "addprocess", lua_addprocess);
         // we don't need it?
         // register_func(g_lua_state, "pinapp", lua_pinApp);
         register_func(g_lua_state, "setmanifestid", lua_setManifestid);

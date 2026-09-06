@@ -166,7 +166,9 @@ namespace {
 } // namespace
 
 void Apply(const PipeContext& ctx) {
-    if (!ctx.gameProcess || !ctx.trackedApp) return;
+    // env-less launcher-spawned games are not "likelyGameProcess" — trackedApp
+    // (already resolved via pipe/addprocess fallback) is the gate that matters.
+    if (!ctx.trackedApp) return;
 
     const PipeKey pipeKey = MakePipeKey(ctx.pipe);
     if (!pipeKey.IsValid()) return;
