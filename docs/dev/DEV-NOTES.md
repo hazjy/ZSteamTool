@@ -25,7 +25,9 @@
 
 ## 3. 构建与部署
 
-- 构建：VS18 自带 CMake + MSVC；Debug 配置产出 `build/Debug/{OpenSteamTool,dwmapi,xinput1_4}.dll`；
+- 构建：VS18 自带 CMake + MSVC；Debug 配置产出 `build/Debug/{OpenSteamTool,dwmapi,xinput1_4}.dll；
+  ⚠️ **本机 VS 实为 Visual Studio Community 2026（版本号 18，工具集代号 `v145`）**——CMake 生成器用 `-G "Visual Studio 17 2022" -A x64 -T v145`（工具集必须 `v145`；默认探测的 `v143`/`v180` 均 MSB8020 报未装且会挂死 TryCompile）；
+  实际命令（2026-09-06 验证）：`vcvars64.bat && cmake -S src -B build -G "Visual Studio 17 2022" -A x64 -T v145 && cmake --build build --config Debug`；依赖 `.deps/` 已预填（离线可用）；
 - **依赖**：FetchContent 缓存 `.deps/`（lua/spdlog/protobuf/tomlplusplus/detours 手动预填——本机 TLS 被加速器干扰，schannel 全线不可用；git 需 `http.sslBackend=openssl` + 合并根证书 CA bundle）；
 - 部署：替换 `d:/steam/` 下三个 DLL（原内核备份在 `ost-backups/`，回滚=拷回）；Debug 内核默认日志可用（toml 未设 `[log]` 时走 Debug 级）；
 - 验证清单：① 重启 Steam 正常加载、入库/游玩无回归；② 功能点按修复记录逐项。
@@ -34,7 +36,7 @@
 
 - 现象：Steam 启动带第三方启动器（Ubisoft Connect / Epic / Rockstar）的游戏 → 真实游戏 exe 由启动器拉起（**无 SteamAppId 环境变量**）→ `ProcessInspector` 判 `likelyGameProcess=false` → `DenuvoAuth::Apply`（DenuvoAuth.cpp:169）直接 return → 授权/身份伪造不生效 → Denuvo 游戏**静默退出**（88500012 / error 54）；
 - 上游修复：**PR #148**（`GetAppIDForCurrentPipe` 重试兜底 + Lua `addprocess/appid, "Exe.exe"` 映射 + `forcedenuvo()` + `gameProcess = likelyGameProcess || trackedApp`）；**已移植（2026-09-06，commit 135a110）**——最小集（PipeManager 兜底 + LuaConfig addprocess + DenuvoAuth 门放宽），排除 eticket/结构性扫描附加特性；
-- 移植后的构建验证：**待本机 VS18 C++ 工具集组件补装**（当前 MSB8020 v143/v180 均报未安装 + CMake 探测死锁，属环境问题非代码）；补装 "MSVC v143 (VS2022) C++ 生成工具" 后即可验证。
+- 移植后的构建验证：**通过（2026-09-06）**——Debug 编译成功（`build/Debug/OpenSteamTool.dll` 等三件）。曾阻塞于 VS2026 工具集代号（见 §3），用 `-T v145` 解决；部署/实机验证待后续。
 
 ## 5. DenuvoAuth 模块说明（守门员）
 
