@@ -1,12 +1,12 @@
 # ZSteamTool 内核开发笔记（DEV-NOTES）
 
-> 本仓库 = OpenSteamTool 内核二次开发（**2026-09-06 由 ZTool 更名**）。基线：上游 OpenSteamTool `2a08b0b` + 本地修复。参考"本尊"：`D:/Projects/OSTGUI/RefProjects/1-在用/OpenSteamTool`（上游同基线权威副本）。
+> 本仓库 = OpenSteamTool 内核二次开发（**2026-09-06 由 ZTool 更名**）。代码基线：上游 OpenSteamTool `2a08b0b` + 本地修复。**对齐基线（2026-09-08 起暂定）：BetterSteamTools**——参考"本尊"：`D:/Projects/OSTGUI/RefProjects/1-在用/BetterSteamTools`（OpenSteamTool 活跃 fork，含 `setlegacycdkey` 第三方产品密钥 / multi-inject / `-realappid` 等新特性，自带 env-less 追踪类实现）；原版上游 `OpenSteamTool` 降存 `RefProjects/2-挂起/` 仅作参考。
 
 ## 1. 定位与仓库
 
 - 独立 git 仓库：单个 init 提交 = 上游 2a08b0b 源码 + onlinefix 480 三件套（LobbyInvite 改写 / 叠加层保持 480 / Persona 好友改写）；
 - 职责：注入 Steam 的解锁内核（3 个 DLL），供 OSTGUI（GUI 侧，`SteamDllService` 负责注入/卸载）配合使用；
-- 上游对照：上游参数见 `OPENSTEAMTOOL`（RefProjects 内，仅参考不修改）；旧 git 历史备份：`D:/Projects/OSTGUI/ost-backups/ZTool-旧上游git历史备份`（含 fix/onlinefix-lobby-invite 分支 v1:94a80b8 / v3:36708b9）；
+- 上游对照：对齐用源码见 `1-在用/BetterSteamTools`（暂定基线，fork 关系：OpenSteamTool 下游）；原版上游 `OPENSTEAMTOOL` 见 `2-挂起/OpenSteamTool`（仅参考不修改）；旧 git 历史备份：`D:/Projects/OSTGUI/ost-backups/ZTool-旧上游git历史备份`（含 fix/onlinefix-lobby-invite 分支 v1:94a80b8 / v3:36708b9）；
 - 内核任务**不记入** OSTGUI 的 agents-log（约定见 OSTGUI `docs/dev/agents-log/README.md`）；本仓库变更记入 `docs/dev/agents-log/`（本地留存，不纳入 git）。
 
 ## 2. 架构速览
