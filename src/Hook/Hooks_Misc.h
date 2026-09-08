@@ -16,6 +16,15 @@ namespace Hooks_Misc {
     // GetAppIDForCurrentPipe.
     AppId_t GetAppIDForCurrentPipeWrap();
 
+    // True while a -onlinefix game is the active spawn.
+    bool IsOnlineFixActive();
+
+    // Call when the game uses SteamNetworkingSockets (IPC interface 46).
+    void NotifyNetworkingSocketsUsed();
+
+    // True once P2P started — GetAppID reports 480; before, the real appid.
+    bool ShouldReportOnlineFixAppId();
+
     // Grow a CUtlBuffer to at least 'newCapacity' bytes and set m_Put = newCapacity.
     // Uses CUtlBuffer::EnsureCapacity from steamclient, resolved on first call.
     bool EnsureBufferCapacity(CUtlBuffer* pWrite, uint32 newCapacity,bool updatePut = false);
@@ -23,13 +32,6 @@ namespace Hooks_Misc {
     // Resolve the real appid: if OnlineFix is active return real appid,
     // otherwise fall back to GetAppIDForCurrentPipe().
     AppId_t ResolveAppId();
-
-    // True while a -onlinefix game session is live. Backed by the single
-    // global set in OnSpawnProcessHit / cleared on any other game launch.
-    bool IsOnlineFixActive();
-
-    // The real AppId behind the active -onlinefix session (0 when inactive).
-    AppId_t OnlineFixRealAppId();
 
     // Get localized game name via GetAppDataFromAppInfo (cached).
     std::string GetGameNameByAppID(AppId_t appId);

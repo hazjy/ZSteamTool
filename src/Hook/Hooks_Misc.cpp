@@ -15,6 +15,11 @@ namespace {
     // Assumes one game at a time.  Set by SpawnProcess VEH when -onlinefix
     // is detected; cleared when a non-onlinefix game launches.
     AppId_t   g_OnlineFixRealAppId;
+    // True once the game starts SteamNetworkingSockets P2P (see GetAppID handler).
+    bool      g_NetworkingSocketsActive;
+    // Set by -realappid on the same command line. Suppresses the P2P appid flip
+    // for this launch only — see ShouldReportOnlineFixAppId.
+    bool      g_SuppressAppIdFlip;
     std::unordered_map<AppId_t, std::string> g_GameNameCache;
 
 
@@ -28,13 +33,19 @@ namespace {
         AppId_t appId = static_cast<AppId_t>(pGameID->AppID(true));
         const char* cmdLine = VehCommon::GetArg<const char*>(ctx, 3);
 
-        if (LuaConfig::HasDepot(appId) && cmdLine && strstr(cmdLine, "-onlinefix")) 
+        if (cmdLine && strstr(cmdLine, "-onlinefix"))
         {
             g_OnlineFixRealAppId = appId;
+            g_NetworkingSocketsActive = false;
+            // Opt out of the P2P appid flip for this game. Launch options are
+            // already per-game in Steam, so this needs no appid list of its own.
+            g_SuppressAppIdFlip = strstr(cmdLine, "-realappid") != nullptr;
             pGameID->SetAppID(kOnlineFixAppId);
-            LOG_MISC_INFO("SpawnProcess: appid {} -> {}, cmd=\"{}\"",appId, kOnlineFixAppId, cmdLine);
+            LOG_MISC_INFO("SpawnProcess: appid {} -> {}, realappid={}, cmd=\"{}\"",
+                          appId, kOnlineFixAppId, g_SuppressAppIdFlip, cmdLine);
         } else {
             g_OnlineFixRealAppId = 0;
+            g_SuppressAppIdFlip = false;
         }
     }
 
@@ -54,13 +65,13 @@ namespace {
 
     // ── CUser_BuildSpawnEnvBlock ─────────────────────────────────────────────
     // pOverlayCGameID drives SteamOverlayGameId, which the in-game overlay
-    // reads. Commit #40 restored it to the real appid for screenshot tags /
+    // reads. Upstream/BST restores it to the real appid for screenshot tags /
     // community URLs -- but that BREAKS ActivateGameOverlayInviteDialog: the
     // overlay binds its invite dialog to (overlay identity == lobby appid),
     // and with identities mismatched against the 480-space lobby it degrades
     // to a plain friends list, so lobby invites never happen (PEAK 实测).
-    // Keep overlay identity at 480; controller identity (OptedInMask below)
-    // is still restored to the real appid.
+    // Keep overlay identity at 480; controller identity (OptedInMask above)
+    // is still restored to the real appid.  [本地合并：取本地实测方向]
     HOOK_FUNC(BuildSpawnEnvBlock, int64,
               void* pThis, CGameID* pCGameID, void* a3, void* env,
               CGameID* pOverlayCGameID, void* a6, int a7,
@@ -146,10 +157,27 @@ namespace Hooks_Misc {
         return g_OnlineFixRealAppId != 0;
     }
 
-    AppId_t OnlineFixRealAppId() {
-        return g_OnlineFixRealAppId;
+    void NotifyNetworkingSocketsUsed() {
+        if (g_OnlineFixRealAppId && !g_NetworkingSocketsActive) {
+            g_NetworkingSocketsActive = true;
+            LOG_MISC_INFO("NetworkingSockets active: GetAppID now reports 480 for cert match");
+        }
     }
-    
+
+    bool ShouldReportOnlineFixAppId() {
+        // The flip exists so a P2P socket's appid matches the 480 session cert,
+        // which some titles need (#146). It is blunt though: from the moment it
+        // trips, every GetAppID answer is the fake appid for the rest of the
+        // process's life. Games that ask Steam for their own appid during later
+        // startup then get 480 and misbehave — Bodycam (2406770) black-screens
+        // straight after login this way.
+        //
+        // Both behaviours are needed by different games, and the call itself
+        // gives no way to tell them apart, so -realappid opts out per launch.
+        if (g_SuppressAppIdFlip) return false;
+        return g_OnlineFixRealAppId != 0 && g_NetworkingSocketsActive;
+    }
+
     bool EnsureBufferCapacity(CUtlBuffer* pWrite, uint32 newCapacity,bool updatePut)
     {
         if (oCUtlBufferEnsureCapacity) {

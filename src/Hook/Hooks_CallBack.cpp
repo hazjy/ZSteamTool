@@ -30,7 +30,7 @@ namespace {
             auto* invite = static_cast<LobbyInvite_t*>(pCallbackData);
             if ((AppId_t)(invite->m_ulGameID & 0xFFFFFFFFu) == kOnlineFixAppId)
             {
-                const AppId_t real = Hooks_Misc::OnlineFixRealAppId();
+                const AppId_t real = Hooks_Misc::ResolveAppId();
                 LOG_ONLINEFIX_INFO("LobbyInvite: gameID {} -> {}, lobby={:016X}",
                                    kOnlineFixAppId, real, invite->m_ulSteamIDLobby);
                 invite->m_ulGameID = real;

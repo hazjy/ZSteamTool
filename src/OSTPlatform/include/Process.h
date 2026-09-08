@@ -20,11 +20,18 @@ namespace OSTPlatform::Process {
     std::string FormatCreationTime(uint64_t fileTime);
     std::optional<std::string> GetImagePath(uint32_t pid);
     std::optional<std::string> GetEnvironmentVariableValue(uint32_t pid, std::wstring_view name);
+    std::optional<std::string> GetProcessCommandLine(uint32_t pid);
     std::vector<ModuleInfo> EnumerateModules(uint32_t pid);
 
     // True when `path` lives under the OS system directory tree (on Windows,
     // %WINDIR%). Used to filter out OS-supplied modules during scans. Case- and
     // separator-insensitive; returns false on platforms without the concept.
     bool IsSystemModulePath(const std::string& path);
+
+    // Launch a UTF-8 command line as a fully detached, window-less process
+    // (fire-and-forget). The child does not share a console and is not tied to
+    // the caller's lifetime — used for a self-restart helper that must outlive
+    // the current process. Returns true if the process was created.
+    bool LaunchDetachedHidden(const std::string& commandLine);
 
 } // namespace OSTPlatform::Process

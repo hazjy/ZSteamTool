@@ -16,9 +16,10 @@ namespace {
         LogLevel logLevel = LogLevel::Debug;
         std::string logDir;
         std::vector<std::string> luaPaths;
-        std::string remoteUrlTemplate;
+        std::vector<std::string> remoteUrlTemplates;
         bool statsEnableApi = true;
-        InjectionSettings injection;
+        bool updateEnabled = true;
+        std::vector<InjectDll> injectDlls;
         CloudSettings cloud;
     };
 
@@ -51,11 +52,10 @@ namespace {
         logLevel               = snapshot.logLevel;
         logDir                 = snapshot.logDir;
         luaPaths               = snapshot.luaPaths;
-        remoteUrlTemplate      = snapshot.remoteUrlTemplate;
+        remoteUrlTemplates     = snapshot.remoteUrlTemplates;
         statsEnableApi         = snapshot.statsEnableApi;
-        injectEnabled          = snapshot.injection.enabled;
-        injectLibraryX86       = snapshot.injection.libraryX86;
-        injectLibraryX64       = snapshot.injection.libraryX64;
+        updateEnabled          = snapshot.updateEnabled;
+        injectDlls             = snapshot.injectDlls;
         cloudEnabled           = snapshot.cloud.enabled;
         cloudLibrary           = snapshot.cloud.library;
     }
@@ -85,12 +85,12 @@ namespace {
             LOG_INFO("Config file not found, using defaults");
             ApplyManifestProvider(snapshot.manifestProvider);
             LoadResult result = ApplySnapshotLocked(snapshot);
-            LOG_INFO("Config loaded: manifest.url={} log.level={} lua.paths={} stats.enable_api={} remote.url_template={}",
+            LOG_INFO("Config loaded: manifest.url={} log.level={} lua.paths={} stats.enable_api={} remote.url_templates={}",
                      ManifestClient::ActiveProviderName(),
                      ToString(GetLogLevel()),
                      (uint32_t)GetLuaPaths().size(),
                      GetStatsEnableApi(),
-                     GetRemoteUrlTemplate().empty() ? "<default>" : GetRemoteUrlTemplate());
+                     (uint32_t)GetRemoteUrlTemplates().size());
             return result;
         }
 
@@ -134,10 +134,16 @@ namespace {
                 }
             }
 
-            // [remote]
+            // [remote] — url_template may be a single string or an array of strings.
             if (auto remote = tbl["remote"].as_table()) {
-                if (auto val = (*remote)["url_template"].value<std::string>()) {
-                    snapshot.remoteUrlTemplate = *val;
+                if (auto arr = (*remote)["url_template"].as_array()) {
+                    for (auto& elem : *arr) {
+                        if (auto str = elem.value<std::string>()) {
+                            snapshot.remoteUrlTemplates.push_back(*str);
+                        }
+                    }
+                } else if (auto val = (*remote)["url_template"].value<std::string>()) {
+                    snapshot.remoteUrlTemplates.push_back(*val);
                 }
             }
 
@@ -148,14 +154,39 @@ namespace {
                 }
             }
 
-            // [inject]
-            if (auto inject = tbl["inject"].as_table()) {
-                if (auto val = (*inject)["enabled"].value<bool>())
-                    snapshot.injection.enabled = *val;
-                if (auto val = (*inject)["library_x86"].value<std::string>())
-                    snapshot.injection.libraryX86 = *val;
-                if (auto val = (*inject)["library_x64"].value<std::string>())
-                    snapshot.injection.libraryX64 = *val;
+            // [update]
+            if (auto update = tbl["update"].as_table()) {
+                if (auto val = (*update)["enabled"].value<bool>()) {
+                    snapshot.updateEnabled = *val;
+                }
+            }
+
+            // [[inject]]
+            if (auto arr = tbl["inject"].as_array()) {
+                std::filesystem::path steamDir = std::filesystem::path(configPath).parent_path();
+                for (auto& node : *arr) {
+                    auto t = node.as_table();
+                    if (!t) continue;
+                    auto path = (*t)["path"].value<std::string>();
+                    if (!path || path->empty()) continue;
+
+                    // Bare names resolve next to steam.exe.
+                    std::filesystem::path full = *path;
+                    if (full.is_relative()) full = steamDir / full;
+                    if (!std::filesystem::exists(full)) {
+                        LOG_WARN("inject dll not found: {}", full.string());
+                        continue;
+                    }
+
+                    InjectDll dll;
+                    dll.path = full.string();
+                    if (auto val = (*t)["when_cmdline"].value<std::string>()) dll.whenCmdline = *val;
+                    if (auto val = (*t)["all_games"].value<bool>())           dll.allGames   = *val;
+                    if (auto ids = (*t)["when_appids"].as_array())
+                        for (auto& id : *ids)
+                            if (auto v = id.value<int64_t>()) dll.whenAppids.insert(static_cast<AppId_t>(*v));
+                    snapshot.injectDlls.push_back(std::move(dll));
+                }
             }
 
             // [cloud]
@@ -168,12 +199,12 @@ namespace {
 
             ApplyManifestProvider(snapshot.manifestProvider);
             LoadResult result = ApplySnapshotLocked(snapshot);
-            LOG_INFO("Config loaded: manifest.url={} log.level={} lua.paths={} stats.enable_api={} remote.url_template={}",
+            LOG_INFO("Config loaded: manifest.url={} log.level={} lua.paths={} stats.enable_api={} remote.url_templates={}",
                      ManifestClient::ActiveProviderName(),
                      ToString(snapshot.logLevel),
                      (uint32_t)snapshot.luaPaths.size(),
                      snapshot.statsEnableApi,
-                     snapshot.remoteUrlTemplate.empty() ? "<default>" : snapshot.remoteUrlTemplate);
+                     (uint32_t)snapshot.remoteUrlTemplates.size());
             return result;
 
         } catch (const toml::parse_error& e) {
@@ -222,23 +253,19 @@ namespace {
         return luaPaths;
     }
 
-    std::string GetRemoteUrlTemplate() {
+    std::vector<std::string> GetRemoteUrlTemplates() {
         std::lock_guard lock(g_mutex);
-        return remoteUrlTemplate;
-    }
-
-    InjectionSettings GetInjectionSettings() {
-        std::lock_guard lock(g_mutex);
-        return {
-            injectEnabled,
-            injectLibraryX86,
-            injectLibraryX64,
-        };
+        return remoteUrlTemplates;
     }
 
     bool GetStatsEnableApi() {
         std::lock_guard lock(g_mutex);
         return statsEnableApi;
+    }
+
+    bool GetUpdateEnabled() {
+        std::lock_guard lock(g_mutex);
+        return updateEnabled;
     }
 
     CloudSettings GetCloudSettings() {

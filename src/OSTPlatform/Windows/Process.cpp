@@ -147,6 +147,62 @@ std::optional<PVOID> QueryWow64EnvironmentAddress(HANDLE process) {
     return reinterpret_cast<PVOID>(static_cast<uintptr_t>(*environment32));
 }
 
+std::optional<std::wstring> ReadCommandLineNative(HANDLE process) {
+    const auto pebAddress = QueryNativePebAddress(process);
+    if (!pebAddress) return std::nullopt;
+
+    const auto processParameters = ReadRemoteValue<PVOID>(
+        process,
+        AddOffset(*pebAddress, offsetof(NtAbi::Peb, processParameters)));
+    if (!processParameters || !*processParameters) return std::nullopt;
+
+    const auto commandLine = ReadRemoteValue<NtAbi::UnicodeString>(
+        process,
+        AddOffset(*processParameters, offsetof(NtAbi::RtlUserProcessParameters, commandLine)));
+    if (!commandLine || !commandLine->buffer || commandLine->length == 0) return std::nullopt;
+
+    const size_t chars = commandLine->length / sizeof(wchar_t);
+    if (chars == 0 || chars > kMaxEnvironmentBytes / sizeof(wchar_t)) return std::nullopt;
+
+    std::wstring value(chars, L'\0');
+    size_t bytesRead = 0;
+    if (!TryReadProcessMemory(process, commandLine->buffer, value.data(),
+                              chars * sizeof(wchar_t), &bytesRead)) {
+        return std::nullopt;
+    }
+    value.resize(bytesRead / sizeof(wchar_t));
+    return value;
+}
+
+std::optional<std::wstring> ReadCommandLineWow64(HANDLE process) {
+    const auto peb32 = QueryWow64PebAddress(process);
+    if (!peb32) return std::nullopt;
+
+    const auto processParameters32 = ReadRemoteValue<ULONG>(
+        process,
+        AddOffset(reinterpret_cast<const void*>(*peb32), offsetof(NtAbi::Peb32, processParameters)));
+    if (!processParameters32 || *processParameters32 == 0) return std::nullopt;
+
+    const auto commandLine = ReadRemoteValue<NtAbi::UnicodeString32>(
+        process,
+        AddOffset(reinterpret_cast<const void*>(static_cast<uintptr_t>(*processParameters32)),
+                  offsetof(NtAbi::RtlUserProcessParameters32, commandLine)));
+    if (!commandLine || commandLine->buffer == 0 || commandLine->length == 0) return std::nullopt;
+
+    const size_t chars = commandLine->length / sizeof(wchar_t);
+    if (chars == 0 || chars > kMaxEnvironmentBytes / sizeof(wchar_t)) return std::nullopt;
+
+    std::wstring value(chars, L'\0');
+    size_t bytesRead = 0;
+    if (!TryReadProcessMemory(process,
+                              reinterpret_cast<const void*>(static_cast<uintptr_t>(commandLine->buffer)),
+                              value.data(), chars * sizeof(wchar_t), &bytesRead)) {
+        return std::nullopt;
+    }
+    value.resize(bytesRead / sizeof(wchar_t));
+    return value;
+}
+
 std::optional<size_t> QueryReadableRegionBytes(HANDLE process, PVOID address) {
     const auto ntQueryVirtualMemory = NtQueryVirtualMemoryProc();
     if (!ntQueryVirtualMemory) return std::nullopt;
@@ -310,6 +366,17 @@ std::optional<std::string> GetEnvironmentVariableValue(uint32_t pid, std::wstrin
     return FindEnvironmentVariable(*environment, name);
 }
 
+std::optional<std::string> GetProcessCommandLine(uint32_t pid) {
+    Windows::UniqueHandle process =
+        OpenProcessHandle(pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ);
+    if (!process) return std::nullopt;
+
+    auto commandLine = ReadCommandLineWow64(process.get());
+    if (!commandLine) commandLine = ReadCommandLineNative(process.get());
+    if (!commandLine) return std::nullopt;
+    return Encoding::WideToUtf8(*commandLine);
+}
+
 std::vector<ModuleInfo> EnumerateModules(uint32_t pid) {
     std::vector<ModuleInfo> modules;
     Windows::UniqueFileHandle snapshot(
@@ -359,6 +426,42 @@ bool IsSystemModulePath(const std::string& path) {
 
     if (systemDir.empty()) return false;
     return NormalizePathForCompare(path).starts_with(systemDir);
+}
+
+bool LaunchDetachedHidden(const std::string& commandLine) {
+    const std::wstring wide = Encoding::Utf8ToWide(commandLine);
+    // CreateProcessW may write into the command-line buffer, so hand it a mutable copy.
+    std::vector<wchar_t> buffer(wide.begin(), wide.end());
+    buffer.push_back(L'\0');
+
+    STARTUPINFOW si{};
+    si.cb          = sizeof(si);
+    si.dwFlags     = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+
+    // Run the helper in a hidden console (CREATE_NO_WINDOW — no flash, no window). It
+    // still outlives the caller: process lifetimes are independent. Do NOT combine
+    // DETACHED_PROCESS with CREATE_NO_WINDOW — they are contradictory console flags and
+    // leave the helper's own child processes with broken handles. Try
+    // CREATE_BREAKAWAY_FROM_JOB first so a kill-on-close job (if Steam is in one) can't
+    // take the helper down, then fall back if the job forbids breakaway.
+    for (DWORD extra : { DWORD{CREATE_BREAKAWAY_FROM_JOB}, DWORD{0} }) {
+        std::vector<wchar_t> cmd = buffer;   // fresh mutable copy per attempt
+        PROCESS_INFORMATION pi{};
+        const BOOL ok = CreateProcessW(
+            nullptr, cmd.data(), nullptr, nullptr, FALSE,
+            CREATE_NO_WINDOW | extra,
+            nullptr, nullptr, &si, &pi);
+        if (ok) {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            return true;
+        }
+        OSTP_LOG_DEBUG("LaunchDetachedHidden: CreateProcessW failed (extra=0x{:X}, error={})",
+                       extra, GetLastError());
+    }
+    OSTP_LOG_WARN("LaunchDetachedHidden: could not launch '{}'", commandLine);
+    return false;
 }
 
 } // namespace OSTPlatform::Process

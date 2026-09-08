@@ -1,14 +1,18 @@
 #include "dllmain.h"
 #include "Hook/HookManager.h"
+#include "Utils/Config/Config.h"
 #include "Utils/Config/ConfigFileWatcher.h"
 #include "Utils/Config/LuaFileWatcher.h"
 #include "Utils/CloudRedirect/CloudRedirectHost.h"
 #include "Utils/SteamMetadata/IPCLoader.h"
 #include "Utils/SteamMetadata/PatternLoader.h"
 #include "Utils/SteamMetadata/SteamDiagnostics.h"
+// [本地剔除] Tokeer（bst:// 兑换码）/ AppUpdater（自更新）不接入：本地手动部署模式 + 无外部后端
+#include "OSTPlatform/include/Dialog.h"
 #include "OSTPlatform/include/DynamicLibrary.h"
 #include "OSTPlatform/include/Thread.h"
 
+#include <string>
 #include <windows.h>
 
 // prepare key runtime paths.
@@ -22,7 +26,7 @@ bool InitializeSteamComponents()
     sprintf_s(SteamclientPath, kRuntimePathCapacity, "%s\\steamclient64.dll",  SteamInstallPath);
     sprintf_s(SteamUIPath,     kRuntimePathCapacity, "%s\\steamui.dll",        SteamInstallPath);
     sprintf_s(DiversionPath,   kRuntimePathCapacity, "%s\\bin\\diversion.dll", SteamInstallPath);
-    sprintf_s(LuaDir,          kRuntimePathCapacity, "%s\\config\\lua",        SteamInstallPath);
+    sprintf_s(LuaDir,          kRuntimePathCapacity, "%s\\config\\stplug-in",  SteamInstallPath);
     sprintf_s(ConfigPath,      kRuntimePathCapacity, "%s\\opensteamtool.toml", SteamInstallPath);
     
     client_hModule = OSTPlatform::DynamicLibrary::Load(SteamclientPath);
@@ -68,8 +72,8 @@ static uint32_t InitThread(OSTPlatform::DynamicLibrary::ModuleHandle selfModule)
     // IPC method metadata (funcHash, fencepost, argc, ...)
     IPCLoader::Load(SteamclientPath);
 
-    std::vector<std::string> watchDirs = Config::GetLuaPaths();
-    watchDirs.push_back(std::string(LuaDir));
+    std::vector<std::string> watchDirs =
+        LuaConfig::MergeWatchDirs(Config::GetLuaPaths(), std::string(LuaDir));
     for (const auto& dir : watchDirs)
         LuaConfig::ParseDirectory(dir);
 
@@ -86,8 +90,24 @@ static uint32_t InitThread(OSTPlatform::DynamicLibrary::ModuleHandle selfModule)
     // [cloud].enabled is set and cloud_redirect.dll is present.
     CloudRedirectHost::Initialize(SteamInstallPath);
 
+    // [本地剔除] 原 BST 此处：TokeerBridge::RegisterUriScheme（bst:// 兑换码，外部服务）
+    // 与 AppUpdater 自更新检查（Config::GetUpdateEnabled 门控）——本地手动三 DLL 部署，不接入。
+
     LOG_INFO("OpenSteamTool init complete");
     return 0;
+}
+
+// True only when the host process is steam.exe. The proxy DLLs already gate injection to
+// Steam, but rundll32 loads this DLL directly to service a bst:// link — there we must NOT
+// run the Steam-injection machinery (steamclient load, hooks, watchers); the TokeerUri
+// export does its work standalone.
+static bool IsSteamHost()
+{
+    char exePath[MAX_PATH];
+    if (!GetModuleFileNameA(nullptr, exePath, MAX_PATH)) return false;
+    const char* name = strrchr(exePath, '\\');
+    name = name ? name + 1 : exePath;
+    return _stricmp(name, "steam.exe") == 0;
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, PVOID pvReserved)
@@ -95,13 +115,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, PVOID pvReserved)
     if (dwReason == DLL_PROCESS_ATTACH)
     {
         DisableThreadLibraryCalls(hModule);
+        if (!IsSteamHost())
+            return TRUE;   // e.g. rundll32 bst:// handler — no injection here
         // Hand off all real work to a worker thread to avoid running file I/O,
         // module loading and detour transactions under the loader lock.
         OSTPlatform::Thread::StartDetached([module = reinterpret_cast<OSTPlatform::DynamicLibrary::ModuleHandle>(hModule)] {
             return InitThread(module);
         });
     }
-    else if (dwReason == DLL_PROCESS_DETACH)
+    else if (dwReason == DLL_PROCESS_DETACH && IsSteamHost())
     {
         ConfigFileWatcher::Stop();
         LuaFileWatcher::Stop();

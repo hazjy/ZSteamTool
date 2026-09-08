@@ -2,7 +2,10 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_set>
 #include <vector>
+
+#include "Steam/Types.h"
 
 namespace Config {
 
@@ -15,10 +18,12 @@ namespace Config {
         uint32_t recv    = 10000;
     };
 
-    struct InjectionSettings {
-        bool enabled = false;
-        std::string libraryX86;
-        std::string libraryX64;
+    // [[inject]] entry: a DLL loaded into a matching game process at the IPC handshake.
+    struct InjectDll {
+        std::string                 path;        // resolved absolute path
+        std::string                 whenCmdline; // substring required in the game command line
+        std::unordered_set<AppId_t> whenAppids;  // appids this entry applies to
+        bool                        allGames = false;  // false: only Lua-unlocked games
     };
 
     struct CloudSettings {
@@ -37,10 +42,10 @@ namespace Config {
     LogLevel GetLogLevel();
     std::string GetLogDir();
     std::vector<std::string> GetLuaPaths();
-    std::string GetRemoteUrlTemplate();
-    InjectionSettings GetInjectionSettings();
+    std::vector<std::string> GetRemoteUrlTemplates();
     CloudSettings GetCloudSettings();
     bool GetStatsEnableApi();
+    bool GetUpdateEnabled();
 
     // [manifest] — provider selection lives in ManifestClient (table-driven).
     inline uint32_t manifestTimeoutResolve = 5000;
@@ -57,16 +62,17 @@ namespace Config {
     // [lua]
     inline std::vector<std::string> luaPaths;
 
-    // [remote]
-    inline std::string remoteUrlTemplate;
+    // [remote] — one or more mirror templates, tried in order. Empty = built-in defaults.
+    inline std::vector<std::string> remoteUrlTemplates;
 
     // [stats]
     inline bool statsEnableApi = true;
 
-    // [inject] - optional library injection into game processes.
-    inline bool injectEnabled = false;
-    inline std::string injectLibraryX86;
-    inline std::string injectLibraryX64;
+    // [update] - self-update check on startup (staged for next Steam launch).
+    inline bool updateEnabled = true;
+
+    // [[inject]] - optional DLL injection into matching game processes.
+    inline std::vector<InjectDll> injectDlls;
 
     // [cloud] - optional Steam Cloud save redirection via CloudRedirect.
     inline bool cloudEnabled = false;

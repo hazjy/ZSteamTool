@@ -1,5 +1,26 @@
 #pragma once
 
+// ── ISteamMatchmaking callbacks (base = 300) [本地合并回：BST 版删除，本地 onlinefix 三件套依赖] ──
+
+constexpr int k_iSteamMatchmakingCallbacks = 300;
+
+//-----------------------------------------------------------------------------
+// Purpose: Posted when the local user receives a lobby invitation.
+//          Layout mirrors isteammatchmaking.h from the public Steamworks SDK.
+// OnlineFix note: for games launched with -onlinefix the lobby lives in
+// Spacewar(480) space while the game believes its own AppId is the real one;
+// SendCallbackToPipe rewrites m_ulGameID back to the real AppId so in-game
+// invite validation (invite.gameID == GetAppID()) passes.
+//-----------------------------------------------------------------------------
+struct LobbyInvite_t
+{
+	enum { k_iCallback = k_iSteamMatchmakingCallbacks + 3 };
+
+	uint64 m_ulGameID;        // game id of the lobby (480 under -onlinefix)
+	uint64 m_ulSteamIDLobby;  // lobby steam id
+	uint64 m_ulSteamIDUser;   // inviter steam id
+};
+
 // ── ISteamUser callbacks (base = 100) ───────────────────────────────
 
 constexpr int k_iSteamUserCallbacks = 100;
@@ -28,25 +49,4 @@ struct AppLicensesChanged_t
 	uint32    m_unCount;                    // 0x08  — number of entries in m_rgAppsUpdated
 	AppId_t   m_rgAppsUpdated[64];         // 0x0C  — batch of updated AppIds
 	uint64    m_unAppsAdded;               // 0x110 — bitmask: bit N = m_rgAppsUpdated[N] was added
-};
-
-// ── ISteamMatchmaking callbacks (base = 300) ────────────────────────
-
-constexpr int k_iSteamMatchmakingCallbacks = 300;
-
-//-----------------------------------------------------------------------------
-// Purpose: Posted when the local user receives a lobby invitation.
-//          Layout mirrors isteammatchmaking.h from the public Steamworks SDK.
-// OnlineFix note: for games launched with -onlinefix the lobby lives in
-// Spacewar(480) space while the game believes its own AppId is the real one;
-// SendCallbackToPipe rewrites m_ulGameID back to the real AppId so in-game
-// invite validation (invite.gameID == GetAppID()) passes.
-//-----------------------------------------------------------------------------
-struct LobbyInvite_t
-{
-	enum { k_iCallback = k_iSteamMatchmakingCallbacks + 3 };
-
-	uint64 m_ulGameID;        // game id of the lobby (480 under -onlinefix)
-	uint64 m_ulSteamIDLobby;  // lobby steam id
-	uint64 m_ulSteamIDUser;   // inviter steam id
 };

@@ -7,8 +7,10 @@
 
 #include <lua.hpp>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <unordered_set>
@@ -24,10 +26,18 @@ namespace LuaConfig{
     static bool g_hasManifestCodeFuncEx = false;
     std::unordered_map<AppId_t, std::string>DepotKeySet{};
     std::unordered_map<AppId_t, uint64_t>AccessTokenSet{};
+    std::unordered_map<AppId_t, std::string>LegacyCDKeySet{};
     std::unordered_set<AppId_t> PinnedApps{};
     std::unordered_map<uint64_t, ManifestOverride> ManifestOverrides{};
     std::unordered_map<AppId_t, uint64_t> StatSteamIdSet{};
     std::unordered_set<AppId_t> OwnedAppIdSet{};
+    // Process exe name (lowercase) → appid; populated by addprocess() in Lua config.
+    std::unordered_map<std::string, AppId_t> ProcessNameAppIdMap{};
+    // App IDs that should bypass ProtectionScan and be treated as Denuvo games.
+    std::unordered_set<AppId_t> ForcedDenuvoSet{};
+    // On-demand eticket mint endpoint, set via seteticketurl() in Lua config.
+    // Empty = disabled (EticketClient falls back to credential-store ticket).
+    std::string EticketUrl{};
 
     // Per-file tracking: which depots each .lua file contributed.
     static std::string g_currentFile;
@@ -42,8 +52,6 @@ namespace LuaConfig{
     // Per-appId purchase time: max(mtime) across every file that currently contributes it.
     // Simple variant: never lowered on UnloadFile unless the refcount drops to zero.
     static std::unordered_map<AppId_t, uint32_t> g_purchaseTime;
-    // addprocess(appid, "exe.exe") mapping (lowercased exe name -> appid).
-    static std::unordered_map<std::string, AppId_t> g_processNameToAppId;
     // Depot IDs removed by UnloadFile / added by ParseFile, consumed by NotifyLicenseChanged.
     static std::vector<AppId_t> g_pendingRemovals;
     static std::vector<AppId_t> g_pendingAdditions;
@@ -236,27 +244,6 @@ namespace LuaConfig{
         return 0;
     }
 
-    // addprocess(appid, "exe.exe") — map a launcher-spawned child process name to
-    // an appid (env-less games started by Ubisoft/Epic/… launchers carry no SteamAppId).
-    // See PipeManager::ResolveAppIdWithRetry for the lookup side.
-    static int lua_addprocess(lua_State* L) {
-        if (lua_gettop(L) < 2 || !lua_isinteger(L, 1) || !lua_isstring(L, 2))
-            return luaL_error(L, "addprocess: need appid, exe name");
-        lua_Integer value = lua_tointeger(L, 1);
-        if (value < 0 || value > UINT32_MAX) return luaL_error(L, "addprocess: appid out of range");
-        std::string name = lua_tostring(L, 2);
-        for (auto& ch : name) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-        g_processNameToAppId[name] = static_cast<AppId_t>(value);
-        return 0;
-    }
-
-    AppId_t GetAppIdForProcess(std::string_view imageName) {
-        std::string lowered(imageName);
-        for (auto& ch : lowered) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-        auto it = g_processNameToAppId.find(lowered);
-        return it == g_processNameToAppId.end() ? k_uAppIdInvalid : it->second;
-    }
-
     static int lua_addtoken(lua_State* L) {
         // addtoken(integer, string(uint64_t))
         int argc = lua_gettop(L);
@@ -286,6 +273,65 @@ namespace LuaConfig{
             AccessTokenSet[AppId] = parsedToken;
         }
 
+        return 0;
+    }
+
+    static int lua_setlegacycdkey(lua_State* L) {
+        // setlegacycdkey(integer appid, string key)
+        int argc = lua_gettop(L);
+        if (argc < 2) {
+            return luaL_error(L, "");
+        }
+        if (!lua_isinteger(L, 1)) {
+            return luaL_error(L, "");
+        }
+        // Read the first argument as appid.
+        lua_Integer value = lua_tointeger(L, 1);
+        if (value < 0 || value > UINT32_MAX)
+            return luaL_error(L, "");
+        AppId_t AppId = (uint32_t)value;
+        // Read the second argument as the CD key, stored verbatim.
+        if (!lua_isstring(L, 2))
+            return luaL_error(L, "");
+        LegacyCDKeySet[AppId] = lua_tostring(L, 2);
+        return 0;
+    }
+
+    static int lua_addprocess(lua_State* L) {
+        // addprocess(appid, "ExeName.exe")
+        // Maps a process exe name to an appid so OST can identify games
+        // that launch without exporting SteamAppId env vars.
+        int argc = lua_gettop(L);
+        if (argc < 2 || !lua_isinteger(L, 1) || !lua_isstring(L, 2))
+            return luaL_error(L, "addprocess requires (appid: integer, exename: string)");
+        lua_Integer value = lua_tointeger(L, 1);
+        if (value <= 0 || value > static_cast<lua_Integer>(UINT32_MAX))
+            return luaL_error(L, "addprocess: appid out of range");
+        std::string name(lua_tostring(L, 2));
+        for (char& ch : name)
+            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        ProcessNameAppIdMap[name] = static_cast<AppId_t>(value);
+        return 0;
+    }
+
+    static int lua_forcedenuvo(lua_State* L) {
+        // forcedenuvo(appid) — bypass ProtectionScan for games where the heuristic fails.
+        if (lua_gettop(L) < 1 || !lua_isinteger(L, 1))
+            return luaL_error(L, "forcedenuvo requires (appid: integer)");
+        lua_Integer value = lua_tointeger(L, 1);
+        if (value <= 0 || value > static_cast<lua_Integer>(UINT32_MAX))
+            return luaL_error(L, "forcedenuvo: appid out of range");
+        ForcedDenuvoSet.insert(static_cast<AppId_t>(value));
+        return 0;
+    }
+
+    static int lua_seteticketurl(lua_State* L) {
+        // seteticketurl("http://your-backend/eticket")
+        // Endpoint that mints fresh nonce-bound encrypted app tickets for
+        // strict Denuvo titles. Set to "" (or omit the call) to disable.
+        if (lua_gettop(L) < 1 || !lua_isstring(L, 1))
+            return luaL_error(L, "seteticketurl requires (url: string)");
+        EticketUrl = std::string(lua_tostring(L, 1));
         return 0;
     }
 
@@ -466,7 +512,10 @@ namespace LuaConfig{
         // (e.g. setAppTICKET, addAppId, SETManifestid, etc.).
         register_func(g_lua_state, "addappid", lua_addappid);
         register_func(g_lua_state, "addtoken", lua_addtoken);
+        register_func(g_lua_state, "setlegacycdkey", lua_setlegacycdkey);
         register_func(g_lua_state, "addprocess", lua_addprocess);
+        register_func(g_lua_state, "forcedenuvo", lua_forcedenuvo);
+        register_func(g_lua_state, "seteticketurl", lua_seteticketurl);
         // we don't need it?
         // register_func(g_lua_state, "pinapp", lua_pinApp);
         register_func(g_lua_state, "setmanifestid", lua_setManifestid);
@@ -487,6 +536,22 @@ namespace LuaConfig{
     }
 
     // ── public query API ─────────────────────────────────────────
+    AppId_t GetAppIdForProcess(const std::string& imageName) {
+        std::string lower(imageName);
+        for (char& ch : lower)
+            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        const auto it = ProcessNameAppIdMap.find(lower);
+        return it != ProcessNameAppIdMap.end() ? it->second : k_uAppIdInvalid;
+    }
+
+    bool IsForcedDenuvo(AppId_t appId) {
+        return ForcedDenuvoSet.count(appId) > 0;
+    }
+
+    const std::string& GetEticketUrl() {
+        return EticketUrl;
+    }
+
     bool HasDepot(AppId_t DepotId,bool excludeOwned) {
         return DepotKeySet.count(DepotId) && (!excludeOwned || !IsOwned(DepotId));
     }
@@ -527,6 +592,13 @@ namespace LuaConfig{
             return AccessTokenSet[AppId];
         }
         return 0;
+    }
+
+    std::optional<std::string> GetLegacyCDKey(AppId_t AppId) {
+        auto it = LegacyCDKeySet.find(AppId);
+        if (it != LegacyCDKeySet.end())
+            return it->second;
+        return std::nullopt;
     }
 
     bool pinApp(AppId_t AppId) {
@@ -804,6 +876,40 @@ namespace LuaConfig{
     }
 
     // ── directory scanner ────────────────────────────────────────
+    std::vector<std::string> MergeWatchDirs(const std::vector<std::string>& configured,
+                                            const std::string& defaultDir) {
+        namespace fs = std::filesystem;
+
+        // Canonical, case-folded key for a directory so relative and absolute spellings
+        // of the same location compare equal. weakly_canonical resolves against the
+        // current working directory (Steam's install root at runtime), matching how the
+        // paths are later opened.
+        auto key = [](const std::string& p) -> std::string {
+            std::error_code ec;
+            fs::path c = fs::weakly_canonical(p, ec);
+            if (ec || c.empty()) c = fs::absolute(fs::path(p), ec);
+            if (ec || c.empty()) c = fs::path(p).lexically_normal();
+            std::string s = c.string();
+            std::transform(s.begin(), s.end(), s.begin(),
+                           [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            return s;
+        };
+
+        std::vector<std::string> out;
+        std::vector<std::string> seen;
+        auto add = [&](const std::string& dir) {
+            if (dir.empty()) return;
+            const std::string k = key(dir);
+            if (std::find(seen.begin(), seen.end(), k) != seen.end()) return;
+            seen.push_back(k);
+            out.push_back(dir);
+        };
+
+        for (const auto& d : configured) add(d);
+        add(defaultDir);   // appended only if it isn't already covered above
+        return out;
+    }
+
     void ParseDirectory(const std::string& directory) {
         if (!Initialize()) return;
 

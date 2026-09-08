@@ -103,6 +103,8 @@ add_library(OpenSteamTool SHARED
 
     # Shared utilities
     Utils/Tickets/AppTicket.cpp
+    Utils/Tickets/LegacyCDKey.cpp
+    Utils/Tickets/EticketClient.cpp
     Utils/Config/Config.cpp
     Utils/Config/ConfigFileWatcher.cpp
     Utils/Config/LuaConfig.cpp
@@ -112,10 +114,14 @@ add_library(OpenSteamTool SHARED
     Utils/Logging/Log.cpp
     Utils/SteamMetadata/IPCLoader.cpp
     Utils/SteamMetadata/ManifestClient.cpp
+    Utils/SteamMetadata/Mirror.cpp
     Utils/SteamMetadata/PatternLoader.cpp
     Utils/SteamMetadata/RemoteToml.cpp
     Utils/SteamMetadata/StatsClient.cpp
     Utils/SteamMetadata/SteamDiagnostics.cpp
+    Utils/Tokeer/TokeerBridge.cpp
+    Utils/Tokeer/TokeerUri.cpp
+    Utils/Update/AppUpdater.cpp
 
     # Pipe subsystem: generic handshake registry + ProcessInspector core, plus
     # self-contained features that own their primitives.
@@ -161,12 +167,39 @@ target_link_libraries(OpenSteamTool PRIVATE
     $<$<CONFIG:Release>:libprotobuf-lite>
     tomlplusplus::tomlplusplus
     $<$<CONFIG:Debug>:spdlog::spdlog>
+    Shell32
 )
 
 # Logging is compiled in only for Debug; Release reduces LOG_* to no-ops.
 target_compile_definitions(OpenSteamTool PRIVATE
     $<$<CONFIG:Debug>:OPENSTEAMTOOL_LOGGING_ENABLED>
 )
+
+# Backend endpoint for on-demand eticket minting (strict Denuvo titles that bind
+# their encrypted app ticket to a launch nonce). Empty by default: the feature is
+# off and the DLL never makes a network request. Point your own build at your own
+# backend and the resulting DLL is self-contained, no Lua config needed:
+#
+#   cmake -B build -DOST_ETICKET_URL="https://your-host/eticket"
+#
+# Left out of the source deliberately so no single deployment's backend ships
+# baked into a public tree. seteticketurl() in the Lua config overrides it.
+set(OST_ETICKET_URL "" CACHE STRING
+    "Backend URL for on-demand eticket minting (empty disables the feature)")
+if(OST_ETICKET_URL)
+    target_compile_definitions(OpenSteamTool PRIVATE
+        OST_ETICKET_URL="${OST_ETICKET_URL}")
+endif()
+
+# Base URL of the Tokeer code server used by the bst:// bridge (code redemption).
+# Overridable per build; defaults to the public host when unset.
+#   cmake -B build -DOST_TOKEER_URL="https://your-host"
+set(OST_TOKEER_URL "" CACHE STRING
+    "Base URL for the Tokeer code server (bst:// bridge)")
+if(OST_TOKEER_URL)
+    target_compile_definitions(OpenSteamTool PRIVATE
+        OST_TOKEER_URL="${OST_TOKEER_URL}")
+endif()
 
 # ---------------------------------------------------------------------------
 # dwmapi.dll hijack — small loader DLL placed alongside Steam.
