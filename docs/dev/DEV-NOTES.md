@@ -1,6 +1,6 @@
 # ZSteamTool 内核开发笔记（DEV-NOTES）
 
-> 本仓库 = OpenSteamTool 内核二次开发（**2026-09-06 由 ZTool 更名**）。基线：上游 OpenSteamTool `2a08b0b` + 本地修复。参考"本尊"：`D:/Projects/OSTGUI/RefProjects/OpenSteamTool`（上游同基线权威副本）。
+> 本仓库 = OpenSteamTool 内核二次开发（**2026-09-06 由 ZTool 更名**）。基线：上游 OpenSteamTool `2a08b0b` + 本地修复。参考"本尊"：`D:/Projects/OSTGUI/RefProjects/1-在用/OpenSteamTool`（上游同基线权威副本）。
 
 ## 1. 定位与仓库
 
