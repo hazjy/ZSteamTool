@@ -507,11 +507,23 @@ namespace Hooks_NetPacket_OwnershipTicket {
         } else {
             auto minted = EticketClient::FetchOwnershipTicket(resp.app_id(), {}, 0);
             if (!minted) {
-                LOG_NETPACKET_WARN("OwnershipTicketResponse[858]: appid={} eresult={} but no owner ticket available",
-                                   resp.app_id(), origEresult);
-                return;
+                // [本地补丁 2026-09-09] 无凭据库票、无铸造后端时，退到 IPC 同款 off-by-four
+                // 伪造所有权票（app7 源票换 appid）。否则"所有权票更新"被 CM 拒（eresult=15）
+                // → Steam 直接取消下载（failed to update ownership ticket），manifest 环节
+                // 根本轮不到。与 Hooks_IPC_ISteamUser 的 ForgeOnly 路径行为对齐。
+                AppTicket::AppOwnershipTicket forged{};
+                if (!AppTicket::GetAppOwnershipTicket(resp.app_id(), forged,
+                                                      AppTicket::AppTicketSource::ForgeOnly)) {
+                    LOG_NETPACKET_WARN("OwnershipTicketResponse[858]: appid={} eresult={} but no owner ticket available",
+                                       resp.app_id(), origEresult);
+                    return;
+                }
+                ticketBytes = std::move(forged.data);
+                LOG_NETPACKET_INFO("OwnershipTicketResponse[858]: appid={} forged ownership ticket (no store/backend)",
+                                   resp.app_id());
+            } else {
+                ticketBytes = std::move(*minted);
             }
-            ticketBytes = std::move(*minted);
         }
 
         resp.set_ticket(ticketBytes.data(), ticketBytes.size());
@@ -566,7 +578,10 @@ namespace Hooks_NetPacket_Manifest {
 
     std::unordered_map<uint64, std::shared_future<uint64>> g_CodeFutures;
     std::mutex g_CodeMutex;
-    constexpr uint32 kMaxWaitSeconds = 12;
+    // [本地补丁 2026-09-09] 12 -> 30：内置源（opensteamtool 等）在本机慢网络下实测响应
+    // 可达 ~9s，且可叠加 Lua 端点的串行等待；12s 窗口会在响应回来前超时（Steam 侧
+    // 表现为 failed to get manifest request code / No connection）。
+    constexpr uint32 kMaxWaitSeconds = 30;
 
     bool HandleSend(const uint8* pBody, uint32 cbBody,
                     const uint8* pHdr, uint32 cbHdr)
