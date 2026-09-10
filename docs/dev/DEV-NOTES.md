@@ -55,6 +55,8 @@
 
 见 `docs/dev/agents-log/`（按日期文件，与 OSTGUI 台账同规范；本地留存，不随 git 分发）。
 
+**重要事件时间线**见 `docs/dev/EVENTS.md`（发生时间 / 具体情况 / 是否解决 / 处置，含未结事项速查）；本文件只承载当前架构与技术决策。
+
 ## 8. BST 对齐（2026-09-08 完成）
 
 - **决策与范围**：照搬 BST `c7b435f` 主体（其 12 个专有 commit 全量内容，含上游 PR#146 / PR#148 完整版）；**关卡4（eticket 在线铸造）不启用**——无自建后端，`EticketClient` 默认禁用零网络；**AppUpdater / Tokeer 剔除**（dllmain 不接入，文件保留，见施工单 `docs/dev/bst-diff/20-migration-plan.md`）；

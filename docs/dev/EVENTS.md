@@ -1,0 +1,52 @@
+# 重要事件记录（EVENTS）
+
+> 按时间正序，新事件追加到文末。字段：发生时间 / 具体情况 / 是否解决 / 处置（方法与现状）。
+> 关联：架构与技术决策见 `DEV-NOTES.md`；按日操作台账见 `agents-log/`。
+
+---
+
+## 2026-09-08 内核基线切换至 BetterSteamTools
+
+- **发生时间**：2026-09-08（决策日晚；code commit `991d55c`，docs `0c67c3c`）
+- **具体情况**：本地 ZTool 内核从"上游 OpenSteamTool 2a08b0b + 自研三件套"切换为**照搬 BST `c7b435f` 主体**（其 12 个专有 commit 全量，含上游 PR#146 multi-inject/P2P / PR#148 env-less+结构检测+按需 eticket）；**关卡4（eticket 在线铸造后端）不做**；AppUpdater/Tokeer 剔除；本地三件套手工合并保留（LobbyInvite 重写 / 覆盖层保 480 / Persona 480→真实）。
+- **是否解决**：是（主体完成；P2P flip 影响观察中）
+- **处置**：v145 构建通过，三 DLL 部署 `d:\steam\`；备份 `ost-backups/20260908-pre-bst/`（src+docs+deployed）；实机验证：UNO 正常（Ubisoft Connect 可装）、**PEAK 邀请界面首次正常弹出**（本地此前 480 修复从未成功，属突破）；待好友侧验证真正联机。详见 DEV-NOTES §8。
+
+## 2026-09-09 上午-下午 Steam 下载封锁侦查（服务器收口）
+
+- **发生时间**：2026-09-09（10:50 仍放行 → 11:16 起收口，时间线见 `docs/dev/bst-diff/30-server-block-2026-09-09.md`）
+- **具体情况**：非拥有账号的入库游戏**下载全部失败**（manifest 拿不到）。全链侦查结论：① CM 的 `GetManifestRequestCode` 对无 license 账户**拒绝发码**（11:16 起）；② 请求码**会话绑定**——跨会话/第三方静态码 CDN 一律 401（带 `/5/` 真实 URL 格式、多域名复测）；③ 开源工具链（opensteamtool.com/wudrm/steamrun 码服务、20770407 lua 端点、SteamManifestCache 等）全部走不通；④ **唯一正路 = 清单文件投喂 depotcache**（MHub 共享源 = 群友"代理下载+共享"同形态）。
+- **是否解决**：是（链路打通；游戏本身仍受服务器拥有权限制，非本方可解）
+- **处置**：内核两补丁部署：858 `OwnershipTicket` **Forge 兜底** + `kMaxWaitSeconds` 12→30；GUI 两修复（SteamCMD API 重试、清单拷贝逐份容错）；SAI 实例 Sifu 投喂清单后**下载成功**（28767 chunks）。备份 `ost-backups/20260909-pre-forge858/`、`20260909-pre-wait30/`。提交：ZSteamTool `688037b`(code)/`6f65bfb`(docs)、OSTGUI `08bfa41`(fix)。
+
+## 2026-09-09 晚 Sifu 下载失败「No connection」排查与修复
+
+- **发生时间**：2026-09-09 21:08-21:21
+- **具体情况**：Sifu 再次下载报 "No connection"。排查出三件事：① 客户端要的清单 `2138711_5545504035024010382` / `2253841_3893356194676043314` **只在 config\depotcache（13:44 写入），根 depotcache 无**——Steam 客户端只读根目录；② 根目录清单此前被 Steam **卸载/回滚时清理**（13:33 失败自动卸载一次、21:21 用户手动卸载一次，两次都清根）——"清单乱动"真相；③ 15:27 起生效的 `manifest.lua`（打 20770407.xyz）在 CM 拒绝后**注入第三方码** → 绑定第三方会话 → CDN 必 401 → 拦截功能（上游原生）把 CM 原始应答覆盖，放大干扰。
+- **是否解决**：是
+- **处置**：清单复制回根 depotcache → 下载真实启动（22.7GB 开拉，21:20 实测 19.7Mbps）→ 用户手动停止+卸载（验证完成）；**`manifest.lua` 改为短路版 `fetch_manifest_code(gid) return "0"`**——L1（lua 层）恒成功返回 0 → L2（内置 provider）永不执行 → CM 原应答透传，第三方码注入彻底清零（原版存档 `manifest.lua.bak`）。**供未来参考：config\depotcache 为持久层，根 depotcache 为易失工作层（卸载必清）**。
+
+## 2026-09-10 创意工坊系统性考证（item 独享清单 / 源实测 / 匿名路线）
+
+- **发生时间**：2026-09-10
+- **具体情况**：① **Workshop 下载流程** = 普通 depot 同一套 CDN 系统（`depot_id=consumer_appid`、`gid=hcontent_file`，同走 `GetManifestRequestCode`）；② **每个 item 独享清单、每次版本更新换新 gid**（实证：431960 item 3756621387 已装 `3320321238485096518` vs 服务器最新 `7330815643251988493`，ACF `NeedsUpdate=1`；旧 gid 文件永久残留）；③ **清单源实测**：MHub 有游戏清单（1990040 与本地逐字节一致）但**无任何工坊清单**（500=查无此文件语义钉死）；20770407.xyz 实锤是**请求码生成器**（返回 19 位数字）不是清单源；无码直拉工坊 manifest 实测 401；④ 群友"创意工坊下载器"日志 = **匿名登录 + 自动启用令牌**（不需要正版账号）→ 指向"匿名会话内拿有效码"路线；本地 `token_cache.json`（Sudama 源，8382 条**包令牌**，键=packageid）即同类钥匙库；**发现 GUI bug：LuaBuilder 按 appid 查 token 库而键是 packageid → addtoken 基本永不生成**（待修）。
+- **是否解决**：部分（机制全查清；匿名会话实证脚本就绪**未跑通**：steam 库 connect 卡在 api.steampowered.com，本机系统 CA 被 Steam++ 污染 → 已装 certifi 未验证）
+- **处置**：待续跑 `python -u %TEMP%\anon_step1.py` → `anontest.py`（workshop vs 游戏要码对照）；若 workshop 匿名放行实锤 → 复刻"匿名+令牌"下载路线可立项。MHub 实测结论：`500 = 未收录`、游戏清单健康、工坊清单为零。
+
+## 2026-09-10 Steam 客户端大更新预警（Beta #1788989629）
+
+- **发生时间**：2026-09-10（群友工具出现"未识别规则"；Beta 通道 #1788989629 情报细化；非官方 changelog，社区分析）
+- **具体情况**：五条未识别规则（`BuildDepotDependency` / `GetAppIDForCurrentPipe` / `ProcessPendingLicenseUpdates` / `RecvPkt` / `steamui/GetTopManager`）→ 客户端内部重构信号。Beta 三失效点：① **manifest 清单重定向失效**（固定 gid 不更新 = 9/9 服务器码验证的客户端侧正式化，"必须用最新清单"）；② **D 加密授权依赖的当前应用身份识别失效**（env-less 链路重构）；③ **刷新库机制失效**（假 CDKey 激活不即时入库，需重开客户端）。函数布局/堆栈大规模变更，适配难度高；Beta 通道**强制更新**（steam.cfg 失效，"除非不重启"）。
+- **是否解决**：未解决（预防性预警；正式版 9/10 晨实测链路仍可用）
+- **处置**：DEV-NOTES §9 全档（符号→功能映射 / 预案五条 / Beta 三失效点 / 结论）；**纪律：不碰 Beta；上游 OpenSteamTool/BST 适配 commit 再增量评估；大更新落地前打备份；上游适配前不操作游戏库**。提交：ZSteamTool `f490b5a`(预警)、`43400c2`(情报细化)。
+
+---
+
+## 未结事项速查（2026-09-10）
+
+1. 匿名会话实证（workshop 码放行与否）——脚本就绪待跑
+2. GUI addtoken 键错配 bug（appid vs packageid）——待修
+3. PEAK 好友侧真实联机验证——待测
+4. 普通 addappid 游戏回归——待测
+5. origin/main 推送（本地领先众多 commit）——长期挂账
+6. Steam 大更新上游适配跟踪——预警状态
