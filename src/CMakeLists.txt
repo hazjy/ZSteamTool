@@ -175,6 +175,13 @@ target_compile_definitions(OpenSteamTool PRIVATE
     $<$<CONFIG:Debug>:OPENSTEAMTOOL_LOGGING_ENABLED>
 )
 
+# [本地修复 2026-09-10] 源文件为 UTF-8（含中文注释/BOX 装饰字符），
+# 全部配置显式指定 /utf-8——此前仅 Debug（经 spdlog INTERFACE options）携带，
+# Release 按 CP936 代码页读取导致注释解码破坏语法（C2059 "}"）。
+if(MSVC)
+    target_compile_options(OpenSteamTool PRIVATE /utf-8)
+endif()
+
 # Backend endpoint for on-demand eticket minting (strict Denuvo titles that bind
 # their encrypted app ticket to a launch nonce). Empty by default: the feature is
 # off and the DLL never makes a network request. Point your own build at your own
