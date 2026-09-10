@@ -49,6 +49,18 @@
 - **是否解决**：否（适配储备；当前正式版 GetProcAddress 定位仍有效，不动）
 - **处置**：原样存档 `bst-diff/30-client-sigs-beta-2026-09-10.toml` + 分析 `...-10.md`（映射表/适配方向：HookMacros 定位扩展"hash→sig scan"回退路径，优先照搬上游适配）；提交见 git log。**适配窗口到来时的第一动作：用本机 beta dll 实测 sig 命中率**。
 
+## 2026-09-10 CDN `/patch/` 端点侦查（群友线索）
+
+- **发生时间**：2026-09-10（群友发送示例 `steampipe.akamaized.net/depot/3624141/patch/<old>/<new>`，称"CDN 不鉴权可拿，旧清单升级新清单"）
+- **具体情况**（实测）：
+  - ✅ 端点真实存在且无鉴权：3624141 → **200 / 22MB**；1206561 方向性：`patch/7056392980458818047/275499322938599766` → 200 / 69MB，反向 404；workshop 虚拟 depot（431960/1206560 consumer_appid）→ 404。即**仅真实游戏 depot 有效**。
+  - ✅ 与 DepotDownloader issue #50（2013）的 URL 格式一致（`/depot/<id>/patch/<old>/<new>`，无码）。
+  - ❌ **响应是加密/专有格式**：高熵 1.1 万+ 片段无任何可读文件名；用 Sudama 三把 depot key（1206561/1206560/431960）AES-ECB 解密后 zlib/LZMA 全失败；本地 depotcache 的 manifest 反而是**明文 protobuf**（文件名可见，如 discord_game_sdk.dll）。**目前无任何公开工具能解析该响应**（SteamKit2/DepotDownloader 无 delta 实现，issue #50 从未落地）。
+  - 🎯 附带校正：1206560=**WorldBox**、431960=**Wallpaper Engine**（api.steamcmd.net 实名；此前"Core Keeper 地图"系误猜）；demo 说明 workshop manifest 文件名明文可见、item 独享清单结论不变。
+  - ❌ Lizerium/LizeriumSteam + LizeriumFindChanges：与 Steam CDN **无关**（Lizerium 生态自研 launcher + 目录 diff 工具），仅"delta patch 思路"参考价值。
+- **是否解决**：否（端点确认可用；结构解析未破，需要专业逆向或等上游实现）
+- **处置**：结论暂记此条；**不立项**（解析成本高、收益未明；更实际路线仍是"最新 gid 清单投喂"与"匿名会话+令牌"）。若后续 Steam 客户端更新走 delta（beta 客户端可能内置 /patch/ 调用），届时以客户端实际请求抓包为准再跟进。
+
 ---
 
 ## 未结事项速查（2026-09-10）
