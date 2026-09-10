@@ -42,6 +42,15 @@
 
 ---
 
+## 2026-09-10 群友提供新版 steamclient hook 签名表（Beta 适配弹药）
+
+- **发生时间**：2026-09-10（紧随 Beta #1788989629 预警；群友经 LocalSend 提供 toml）
+- **具体情况**：25 条 `[0xHASH] name / rva / sig` 签名表，覆盖 `RecvPkt`/`GetAppIDForCurrentPipe`/`BuildSpawnEnvBlock`/`SendCallbackToPipe`/`GetPipeClient`/`CheckAppOwnership`/`GetPackageInfo`/`MarkLicenseAsChanged`/`ProcessPendingLicenseUpdates`/`LoadDepotDecryptionKey`/`BuildDepotDependency` 等——**正是"未识别规则"的展开**。验证：25/25 hash 与本地 Fnv1a32 算法完全一致（同生态），绝大多数字节模式与我们现有 hook 点一一对应。
+- **是否解决**：否（适配储备；当前正式版 GetProcAddress 定位仍有效，不动）
+- **处置**：原样存档 `bst-diff/30-client-sigs-beta-2026-09-10.toml` + 分析 `...-10.md`（映射表/适配方向：HookMacros 定位扩展"hash→sig scan"回退路径，优先照搬上游适配）；提交见 git log。**适配窗口到来时的第一动作：用本机 beta dll 实测 sig 命中率**。
+
+---
+
 ## 未结事项速查（2026-09-10）
 
 1. 匿名会话实证（workshop 码放行与否）——脚本就绪待跑
