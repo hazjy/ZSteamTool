@@ -1,6 +1,7 @@
 # Build output
 build/
 .deps/
+发布包/
 
 # Visual Studio
 *.user
