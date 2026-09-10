@@ -33,10 +33,11 @@
 
 ## 安装
 
-1. 备份 Steam 根目录现有 `OpenSteamTool.dll` / `dwmapi.dll` / `xinput1_4.dll`
-2. 用发布包内同名文件替换
-3. 将 `opensteamtool.toml` 放到 Steam 根目录（如需 lua 扩展目录按注释调整 `[lua] paths`）
-4. 重启 Steam 验证
+1. 发布包 `发布包/ZSteamTool-v1.0.0.zip` 内分 `Debug\`（带日志，排障用）与 `Release\`（日常用）两个版本，各含 `OpenSteamTool.dll` / `dwmapi.dll` / `xinput1_4.dll`
+2. 备份 Steam 根目录现有三个同名 DLL
+3. 以所选版本的三个 DLL 替换
+4. 将 `opensteamtool.toml` 放到 Steam 根目录（如需 lua 扩展目录按注释调整 `[lua] paths`）
+5. 重启 Steam 验证
 
 ## 已知限制与注意
 
