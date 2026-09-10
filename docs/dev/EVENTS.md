@@ -67,6 +67,17 @@
 - **用途与局限**：增量更新通道（旧端点，客户端现行流程不用它）；**重建目标数据必须持有源 chunk（旧版文件）作字典**——只能服务"已有旧版本"场景；**不能当清单用、不能无中生有**。当前主线（清单投喂 / 匿名+令牌）不受影响。
 - **参照实现**：teknology-hub/tek-steamclient（2025，C 库，`sp_decode.c`/`depot_patch.c`/`am_job_patch.c`；支持 manifests/patches/chunks、匿名 CM、tek-s3 拉码/钥匙——与群友下载器架构同源参考）。
 
+### delta patch 复用线索（后续补充，供以后研究）
+
+**核心诉求**：像 Steam 客户端一样"用本地旧安装 + 差分数据包 → 新版本"（无拥有权、无码增量更新）。
+
+1. **tek-steamclient**（https://github.com/teknology-hub/tek-steamclient ，另有 SteamStuff fork）：C/C++ 库 + tek-sc-cli。`am_job_patch.c` = 应用差分的完整实现（patch job 管线：读旧安装 → 拉 patch → 字典解压 → 产出新文件）；`depot_delta_compute.c` 还能自产差分；`sp_decode.c` 已实测对齐（见上）。我们已验证其解密模型（ECB-IV+CBC）与真实响应吻合——**最可信的实现参照**。
+2. **steamroom / steamroom-client**（https://github.com/landaire/steamroom ，crates.io 0.3.0 / 2026-07-15 活跃）：Rust 高层下载编排 + **delta patching**——备选（Rust 生态，可嵌入 CLI/库）。
+3. **SteamKit PR #616**（2018 WIP，未合）：`ContentDeltaChunks` proto 原型 + `BInitializeDeltaChunks`——接口定义参考。
+4. **RedAlt-SteamUp-Creator**（Reddiepoint）：SteamDB changelist + DepotDownloader 拉变更文件制作/安装更新包（xDelta 替代思路，周边参考）。
+
+**研究入口建议**：以 tek-steamclient 为主线（C 可直接对照我们 C++ 内核），验证路径 = "本地旧 manifest + 旧文件 → `/patch/<old>/<new>` 拉差分 → 重建目标 chunk → 校验（尾部 zsv 容器 CRC32）→ 产出新文件树"。**前提约束**：必须有旧文件（差分无中生有），且需知道旧/新 gid（appinfo/ACF）。
+
 ---
 
 ## 未结事项速查（2026-09-10）
