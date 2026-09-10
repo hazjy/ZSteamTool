@@ -33,6 +33,12 @@ namespace Hooks_Misc {
     // otherwise fall back to GetAppIDForCurrentPipe().
     AppId_t ResolveAppId();
 
+    // The session AppId used by -onlinefix (default kOnlineFixAppId=480).
+    // Overridable per launch: "-onlinefix=<appid>" or "-onlinefix <appid>"
+    // on the command line (parsed in SpawnProcess; the same value is used
+    // for P2P cert / lobby / invite checks / overlay identity).
+    AppId_t SessionAppId();
+
     // Get localized game name via GetAppDataFromAppInfo (cached).
     std::string GetGameNameByAppID(AppId_t appId);
 

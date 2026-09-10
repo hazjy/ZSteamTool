@@ -57,7 +57,7 @@ namespace {
         if (req.cbMaxTicket() < 0) return;
 
         AppTicket::AppOwnershipTicket ticket{};
-        AppId_t appId = req.unAppID() == kOnlineFixAppId ? Hooks_Misc::ResolveAppId() : req.unAppID();
+        AppId_t appId = req.unAppID() == Hooks_Misc::SessionAppId() ? Hooks_Misc::ResolveAppId() : req.unAppID();
         
         AppTicket::AppTicketSource ticketSource;
         if (PipeManager::DenuvoAuth::IsAuthorizedPipe(pipe)) {

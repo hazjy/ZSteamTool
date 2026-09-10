@@ -15,6 +15,10 @@ namespace {
     // Assumes one game at a time.  Set by SpawnProcess VEH when -onlinefix
     // is detected; cleared when a non-onlinefix game launches.
     AppId_t   g_OnlineFixRealAppId;
+    // Session identity for the -onlinefix launch (Spacewar by default).
+    // Overridable with "-onlinefix=<appid>" / "-onlinefix <appid>" on the
+    // command line; every 480-flavoured rewrite uses this value instead.
+    AppId_t   g_SessionAppId = kOnlineFixAppId;
     // True once the game starts SteamNetworkingSockets P2P (see GetAppID handler).
     bool      g_NetworkingSocketsActive;
     // Set by -realappid on the same command line. Suppresses the P2P appid flip
@@ -28,6 +32,33 @@ namespace {
     //                    pGameID, ...)
     // arg1=pCUser, arg2=pExePath, arg3=pCommandLine, arg4=pWorkingDir
     // arg5=pGameID (CGameID*; low 24 bits = AppId)
+    //
+    // Session AppId selection from the command line:
+    //   "-onlinefix"             -> default kOnlineFixAppId (Spacewar 480)
+    //   "-onlinefix=<appid>"     -> explicit (recommended, unambiguous)
+    //   "-onlinefix <appid>"     -> following plain number also accepted
+    // Anything else (e.g. "-onlinefixappid" style flags) falls back to default.
+    static AppId_t ParseSessionAppId(const char* cmdLine) {
+        const char* p = strstr(cmdLine, "-onlinefix");
+        if (!p) return kOnlineFixAppId;
+        p += 10; // strlen("-onlinefix")
+        if (*p == '=') {
+            ++p;
+        } else if (*p == ' ' || *p == '\t') {
+            while (*p == ' ' || *p == '\t') ++p;
+        } else {
+            return kOnlineFixAppId; // "-onlinefix..." (other flags, end, etc.)
+        }
+        if (!(*p >= '0' && *p <= '9')) return kOnlineFixAppId;
+        unsigned long long v = 0;
+        while (*p >= '0' && *p <= '9') {
+            v = v * 10 + static_cast<unsigned long long>(*p - '0');
+            if (v > UINT32_MAX) return kOnlineFixAppId;
+            ++p;
+        }
+        return v == 0 ? kOnlineFixAppId : static_cast<AppId_t>(v);
+    }
+
     static void OnSpawnProcessHit(OSTPlatform::Trap::Context& ctx, const VehCommon::Int3Site& /*site*/) {
         CGameID* pGameID = VehCommon::GetArg<CGameID*>(ctx, 5);
         AppId_t appId = static_cast<AppId_t>(pGameID->AppID(true));
@@ -40,12 +71,14 @@ namespace {
             // Opt out of the P2P appid flip for this game. Launch options are
             // already per-game in Steam, so this needs no appid list of its own.
             g_SuppressAppIdFlip = strstr(cmdLine, "-realappid") != nullptr;
-            pGameID->SetAppID(kOnlineFixAppId);
-            LOG_MISC_INFO("SpawnProcess: appid {} -> {}, realappid={}, cmd=\"{}\"",
-                          appId, kOnlineFixAppId, g_SuppressAppIdFlip, cmdLine);
+            g_SessionAppId = ParseSessionAppId(cmdLine);
+            pGameID->SetAppID(g_SessionAppId);
+            LOG_MISC_INFO("SpawnProcess: appid {} -> {} (session), realappid={}, cmd=\"{}\"",
+                          appId, g_SessionAppId, g_SuppressAppIdFlip, cmdLine);
         } else {
             g_OnlineFixRealAppId = 0;
             g_SuppressAppIdFlip = false;
+            g_SessionAppId = kOnlineFixAppId;
         }
     }
 
@@ -56,7 +89,7 @@ namespace {
     // opt-in and gameoverlayrenderer hijacks the XInput stream.
     HOOK_FUNC(OptedInMask, int64,void* pThis, AppId_t appId)
     {
-        if (appId == kOnlineFixAppId && g_OnlineFixRealAppId) {
+        if (appId == Hooks_Misc::SessionAppId() && g_OnlineFixRealAppId) {
             LOG_MISC_INFO("OptedInMask: appid {} -> {}",appId, g_OnlineFixRealAppId);
             appId = g_OnlineFixRealAppId;
         }
@@ -79,7 +112,7 @@ namespace {
     {
         if (g_OnlineFixRealAppId) {
             LOG_MISC_INFO("BuildSpawnEnvBlock: keeping OverlayCGameID at {} for -onlinefix invite dialog",
-                          kOnlineFixAppId);
+                          Hooks_Misc::SessionAppId());
         }
         return oBuildSpawnEnvBlock(pThis, pCGameID, a3, env,
                                     pOverlayCGameID, a6, a7,
@@ -157,10 +190,15 @@ namespace Hooks_Misc {
         return g_OnlineFixRealAppId != 0;
     }
 
+    AppId_t SessionAppId() {
+        return g_SessionAppId;
+    }
+
     void NotifyNetworkingSocketsUsed() {
         if (g_OnlineFixRealAppId && !g_NetworkingSocketsActive) {
             g_NetworkingSocketsActive = true;
-            LOG_MISC_INFO("NetworkingSockets active: GetAppID now reports 480 for cert match");
+            LOG_MISC_INFO("NetworkingSockets active: GetAppID now reports {} for cert match",
+                          g_SessionAppId);
         }
     }
 

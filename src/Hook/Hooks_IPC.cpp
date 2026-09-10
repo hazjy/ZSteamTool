@@ -106,7 +106,8 @@ namespace {
     }
 
     // Detect the first SteamNetworkingSockets call (interface 46) so GetAppID can
-    // flip to 480 for P2P games. Skipped once already seen or when not in onlinefix.
+    // flip to the session AppId for P2P games. Skipped once already seen or when
+    // not in onlinefix.
     static void DetectNetworkingSockets(CUtlBuffer* pRead) {
         if (!Hooks_Misc::IsOnlineFixActive() || Hooks_Misc::ShouldReportOnlineFixAppId()) return;
         IPCMessages::IPCRequest request{pRead};

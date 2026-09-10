@@ -881,7 +881,7 @@ namespace Hooks_NetPacket_RichPresence {
         // Owned games on top let the server's natural broadcast paint the
         // cache; -onlinefix games are already handled by the OnlineFix path.
         AppId_t newTracked = 0;
-        if (topmost != 0 && topmost != kOnlineFixAppId && LuaConfig::HasDepot(topmost))
+        if (topmost != 0 && topmost != Hooks_Misc::SessionAppId() && LuaConfig::HasDepot(topmost))
             newTracked = topmost;
 
         if (g_PlayingAppId == newTracked) return;
@@ -936,12 +936,12 @@ namespace Hooks_NetPacket_RichPresence {
                 auto* f = msg.mutable_friends(i);
                 if (f->has_friendid() && f->friendid() == g_LocalSteamId) continue;
                 const AppId_t fp = static_cast<AppId_t>(f->game_played_app_id());
-                if (fp == kOnlineFixAppId) {
+                if (fp == Hooks_Misc::SessionAppId()) {
                     f->set_game_played_app_id(real);
                     if (f->has_gameid()) f->set_gameid(real);
                     friendPatched = true;
-                    LOG_ONLINEFIX_INFO("Persona friend {:016X}: gameid 480 -> {} (OnlineFix)",
-                                       f->friendid(), real);
+                    LOG_ONLINEFIX_INFO("Persona friend {:016X}: gameid {} -> {} (OnlineFix)",
+                                       f->friendid(), Hooks_Misc::SessionAppId(), real);
                 }
             }
             if (friendPatched) {
@@ -950,7 +950,7 @@ namespace Hooks_NetPacket_RichPresence {
                     LOG_ONLINEFIX_WARN("Friend patch too large ({} bytes)", g_cbNewBody);
                 } else if (msg.SerializeToArray(g_NewBody, kMaxBodySize)) {
                     LOG_ONLINEFIX_INFO("Patched friend persona entries ({} -> {})",
-                                       kOnlineFixAppId, real);
+                                       Hooks_Misc::SessionAppId(), real);
                     return true;
                 } else {
                     LOG_ONLINEFIX_WARN("Friend patch SerializeToArray failed");
@@ -1045,17 +1045,18 @@ namespace Hooks_NetPacket_OnlineFix {
             auto* game = msg.mutable_games_played(i);
             AppId_t appid = static_cast<AppId_t>(game->game_id() & UINT32_MAX);
 
-            // SpawnProcess rewrites pGameID to 480, so game_id is already 480.
-            // Fill game_extra_info with the real game name.
-            if (appid == kOnlineFixAppId) {
+            // SpawnProcess rewrites pGameID to the session AppId, so game_id already
+            // reports it. Fill game_extra_info with the real game name.
+            const AppId_t session = Hooks_Misc::SessionAppId();
+            if (appid == session) {
                 AppId_t realAppId = Hooks_Misc::ResolveAppId();
-                if (realAppId && realAppId != kOnlineFixAppId) {
+                if (realAppId && realAppId != session) {
                     std::string name = Hooks_Misc::GetGameNameByAppID(realAppId);
                     if (!name.empty()) {
                         game->set_game_extra_info(name);
                         patched = true;
-                        LOG_ONLINEFIX_INFO("OnlineFix: 480 -> name '{}' (real appid {})",
-                            name, realAppId);
+                        LOG_ONLINEFIX_INFO("OnlineFix: {} -> name '{}' (real appid {})",
+                            session, name, realAppId);
                     }
                 }
             }
