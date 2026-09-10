@@ -61,6 +61,12 @@
 - **是否解决**：否（端点确认可用；结构解析未破，需要专业逆向或等上游实现）
 - **处置**：结论暂记此条；**不立项**（解析成本高、收益未明；更实际路线仍是"最新 gid 清单投喂"与"匿名会话+令牌"）。若后续 Steam 客户端更新走 delta（beta 客户端可能内置 /patch/ 调用），届时以客户端实际请求抓包为准再跟进。
 
+### patch 响应定性（后续补充，同日定稿）
+
+- **确定格式**：`/patch/<old>/<new>` 响应 = 用 depot key 加密的 **delta patches（差分更新数据包）**。解密模型（对齐 tek-steamclient `sp_decode.c` 实现并实测验证）：首 16 字节 **AES-ECB 解出 = IV**，余下 **AES-CBC(IV)** 解密（PKCS7 padding）；解出后为数百个 **delta chunk 容器**：`zsv`（zstd + 源 chunk 字典，实测 411 个，随机期望仅 4）为主、`vzd`（LZMA + preset_dict）少量。大小自洽：1206561 全量新增 264MB vs 差分 66MB。
+- **用途与局限**：增量更新通道（旧端点，客户端现行流程不用它）；**重建目标数据必须持有源 chunk（旧版文件）作字典**——只能服务"已有旧版本"场景；**不能当清单用、不能无中生有**。当前主线（清单投喂 / 匿名+令牌）不受影响。
+- **参照实现**：teknology-hub/tek-steamclient（2025，C 库，`sp_decode.c`/`depot_patch.c`/`am_job_patch.c`；支持 manifests/patches/chunks、匿名 CM、tek-s3 拉码/钥匙——与群友下载器架构同源参考）。
+
 ---
 
 ## 未结事项速查（2026-09-10）
