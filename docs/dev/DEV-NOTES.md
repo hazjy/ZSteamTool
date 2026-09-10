@@ -71,3 +71,31 @@
 - **后续**：BST 主体已并入；上游/BST 新 commit 用 FETCH + diff 增量评估（§6 环境坑：git openssl 后端）；三件套与 P2P flip 共存影响继续用联机样本观察。
 - **勘误与模型定稿（2026-09-08 考证，含用户实测）**：①「30 分钟授权窗口」系误读——DenuvoAuth 的 authorization window 是**进程级一次性握手状态机**（首/二次握手开/关窗，无定时器）；README 的 30 分钟实为 **eticket 票据本身的 Steam 侧时效**（Steamworks `SteamEncryptedAppTicket_GetTicketIssueTime` 校验签发时间），**仅当"需要重新验证 eticket"时生效**。②**正确模型（用户考证 + 证据收敛）**：**设备 token（本机激活许可）在 → Denuvo 不再验 eticket → 长期可玩**（游戏不更新即稳定，用户实测）；token 缺失/失效（游戏或系统更新、换凭据）→ 重新激活 → 需**新鲜 eticket**（30 分钟时效，超期 Steam 验证不通过）→ 须现取（正版号在线 extract / EticketClient 在线铸造后端）。③88500005 线上实锤为**反篡改/滥用处罚族**（官方 support.codefusion.technology 页：88500005≈2 周 / 88500006≈24h），与票据时效分属两类错误。
 - **Steam 下载封锁侦查（2026-09-09 全链）**：CM 发码自 11:16 起对非拥有账号收口（上午 10:50 仍放行）→ 跨会话/静态请求码 CDN 一律 401（带 `/5/` 真实 URL 格式复测也 401）→ **唯一正路 = 清单文件投喂 depotcache**（MHub/共享源 = 群友"代理下载+共享"同形态；Sifu 实测投喂后下载成功）；内核两补丁已部署：① 858 `OwnershipTicket` handler **Forge 兜底**（无凭据库票/无后端时 off-by-four 伪造票应答，修复"更新所有权票 AccessDenied"）② `kMaxWaitSeconds` 12→30（内置源慢响应不再超时）。详见 `docs/dev/bst-diff/30-server-block-2026-09-09.md`。
+
+## 9. Steam 客户端大更新预警（2026-09-10 记录）
+
+> 群友侧工具（入库/规则类）近期出现 **"未识别规则"** 列表，显示 Steam 客户端内部符号大改，预示**客户端一次大更新将至，届时入库/破解工具链（含本体系）可能短暂失效**。此节先记录现象与影响面映射，适配动作等上游确凿后另开凭证。
+
+### 9.1 未识别符号清单与影响映射
+
+| 符号 | 语义 | 对应本体系功能（风险点） |
+|---|---|---|
+| `steamclient/BuildDepotDependency` | depot 依赖关系构建 | 依赖/共享 depot 处理（228980 redistributables 挂载、SharedDepots、依赖下载链） |
+| `steamclient/GetAppIDForCurrentPipe` | 由 pipe 推断当前 AppID | **env-less 启动器链路**（上游 PR#148 PipeManager；本地手合三件套之一；NBA 2K26/Suicide Squad 类） |
+| `steamclient/ProcessPendingLicenseUpdates` | 待处理 license 更新流程 | **许可证注入核心**（858 票据体系、credential store、addappid/lua 解锁）——**最可能直接打脸入库** |
+| `steamclient/RecvPkt` | 网络包接收底层 | Hooks_NetPacket 依赖的包/消息层（job/UM 层若移位则 151/147/857/858 拦截点全变） |
+| `steamui/GetTopManager` | steamui 顶层管理器 | steamui 层注入（overlay 保 480、UI 相关 hook） |
+
+### 9.2 判断依据
+
+- 符号组覆盖 **license / pipe / 网络包 / UI 顶层** 四大块 = 客户端内部重构而非单一 bug（用户转述群友工具"未识别规则"）。
+- 上游 OpenSteamTool 近数月活跃重构印证生态在追 Steam 变化：fake license 注入方式从"副本模块"改为"直接 hook 原 steamclient64"（上游 #64）、env-less PipeManager（#42b7a7d）、manifest/eticket 拦截迁移到 NetPacket/IPC 层（#edb9083）——这些正是对"符号/流程迁移"的适配记录。
+- 本体系当前 hook 面：Hooks_NetPacket（消息层，Fnv1aHash 按 job 名，**消息级较稳**）、Hooks_Misc/Hooks_CallBack（导出函数 Detours，**随导出表变动最脆弱**）。
+
+### 9.3 预案
+
+1. **备份先行**：大更新落地前，为 `d:\steam\` 部署件 + src 打一份 `ost-backups/202609xx-pre-bigupdate/`（沿用既有命名规范）。
+2. **上游跟踪**：FETCH 上游 OpenSteamTool 与 BetterSteamTools，若有"适配新客户端"commit 增量评估后照搬（§6 环境坑：git 需 openssl 后端 + sslVerify=false）。
+3. **更新后回归清单**（小样本先跑）：① 任意 addappid 游戏入库 ② 下载（投喂清单链路）③ PEAK/UNO 启动 + 联机 ④ env-less 启动器类（如 NBA 2K26）⑤ workshop 订阅下载。
+4. **不动本地补丁**：858 forge / kMaxWaitSeconds 30 / lua 短路属消息层，预期影响小；真正风险在导出表与 license 流程，**先上游适配、再本地上补丁**。
+5. 行为准则不变：**Steam 大更新后、上游适配前，暂停对游戏库做入库/更新操作**，避免半失效状态写坏 appmanifest/lua。
