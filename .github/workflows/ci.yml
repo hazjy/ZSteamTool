@@ -3,8 +3,22 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+      - '.gitattributes'
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+      - '.gitattributes'
 
 # Cancel previous runs on the same PR / branch when new commits arrive.
 concurrency:
