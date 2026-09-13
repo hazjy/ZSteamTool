@@ -26,8 +26,8 @@
 
 ## 已知限制
 
-- **Steam 客户端大更新预警（Beta #1788989629）**：客户端内部重构，Beta 通道强制更新；请勿手动切换 Beta 通道，正式版当前链路可用（详见 `../../doc/内核-事实考证.md`）；
-- **下载依赖清单投喂**：服务器对非拥有账号的清单请求码签发受限，新游戏下载需将清单文件放入 `steam\depotcache\`（详见 `../../doc/EVENTS/02-下载与请求码.md`）；
+- **Steam 客户端大更新预警（Beta #1788989629）**：客户端内部重构，Beta 通道强制更新；请勿手动切换 Beta 通道，正式版当前链路可用（详见工作区根 `doc/`）；
+- **下载依赖清单投喂**：服务器对非拥有账号的清单请求码签发受限，新游戏下载需将清单文件放入 `steam\depotcache\`（详见工作区根 `doc/EVENTS/`）；
 - **Denuvo**：设备 token 优先；eticket 在线铸造后端未启用（默认关闭，无网络请求）。
 
 ---
@@ -36,4 +36,4 @@
 
 替换 Steam 根目录下的 `OpenSteamTool.dll` / `dwmapi.dll` / `xinput1_4.dll` 三个文件（升级前建议备份旧文件），`opensteamtool.toml` 按需更新，重启 Steam 生效。
 
-> 相关文档：发布说明 `docs/RELEASE-v1.0.0.md`；开发笔记 `docs/dev/DEV-NOTES.md`；事件与调研 `EVENTS/`（工作区根）。
+> 相关文档：发布细节与发布件原文见 `docs/dev/agents-log/`（索引含**版本对照**）；开发笔记 `docs/dev/DEV-NOTES.md`；事件与调研见工作区根 `doc/EVENTS/`。

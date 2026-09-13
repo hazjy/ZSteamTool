@@ -1,8 +1,8 @@
 # ZSteamTool 内核开发笔记（DEV-NOTES）
 
-> 本仓库 = OpenSteamTool 内核二次开发（**2026-09-06 由 ZTool 更名**）。代码基线：上游 OpenSteamTool `2a08b0b` + 本地修复。**对齐基线：BetterSteamTools**（2026-09-08 已照搬并入并实机验证，对齐决策与勘误见 `../../doc/内核-事实考证.md`）——参考"本尊"：`D:/Projects/OSTGUI/RefProjects/1-在用/BetterSteamTools`（OpenSteamTool 活跃 fork）；原版上游 `OpenSteamTool` 降存 `RefProjects/2-挂起/` 仅作参考。
+> 本仓库 = OpenSteamTool 内核二次开发（**2026-09-06 由 ZTool 更名**）。代码基线：上游 OpenSteamTool `2a08b0b` + 本地修复。**对齐基线：BetterSteamTools**（2026-09-08 已照搬并入并实机验证，对齐决策与勘误见工作区根 `doc/` 下的事实考证（内核侧））——参考"本尊"：`D:/Projects/OSTGUI/RefProjects/1-在用/BetterSteamTools`（OpenSteamTool 活跃 fork）；原版上游 `OpenSteamTool` 降存 `RefProjects/2-挂起/` 仅作参考。
 >
-> 本文只承载**项目结构与架构**；领域事实/机制考证/生态调研见 `../../doc/内核-事实考证.md`；事件时间线见 `../../doc/EVENTS/`。
+> 本文只承载**项目结构与架构**；领域事实/机制考证/生态调研见工作区根 `doc/` 下的事实考证（内核侧）；事件时间线见 `../../doc/EVENTS/`。
 
 ## 1. 定位与仓库
 
@@ -58,6 +58,6 @@
 ## 7. 变更台账
 
 - 按日台账：`docs/dev/agents-log/`（本地留存，不随 git 分发；索引见该目录 README）。
-- 版本更新说明：`docs/changelog/UPDATE-NOTES-*.md`（随仓库分发）。
+- 版本说明：`docs/changelog/` **只放** `UPDATE-NOTES-*.md`（更新日志，随仓库分发，与 OSTGUI 同规范）；发布细节、构建与打包配方、包内 README 与配置模板原文一律归档到对应日期的台账页附录（`docs/dev/agents-log/`，本地留存），台账索引含版本对照。
 - 重要事件与调研：`../../doc/EVENTS/`（工作区根 doc 下，主题索引 README.md）。
-- 事实考证（BST 对齐 / 大更新预警 / Denuvo 模型）：`../../doc/内核-事实考证.md`。
+- 事实考证（BST 对齐 / Denuvo 模型 / 大更新技术映射与纪律）：工作区根 `doc/` 下的事实考证（内核侧）。
