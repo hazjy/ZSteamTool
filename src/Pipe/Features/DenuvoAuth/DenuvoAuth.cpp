@@ -3,6 +3,7 @@
 #include "Pipe/Features/DenuvoAuth/ProtectionScan.h"
 #include "Utils/Logging/Log.h"
 #include "Utils/Tickets/AppTicket.h"
+#include "Utils/Config/Config.h"
 #include "Utils/Config/LuaConfig.h"
 #include "OSTPlatform/include/SteamCredentialStore.h"
 
@@ -105,7 +106,12 @@ namespace {
                 handshakeCount >= kEndDenuvoVerificationHandshake) {
                 stage = Stage::EndAuthorization;
                 LOG_PIPE_INFO("DenuvoAuth: authorization window ended {}", this->DebugString());
-                if(LuaConfig::IsOwned(authorizedAppId)){
+                // [本地补丁 2026-09-13] 单写者：normal 模式下不再把“当时登录的账号”
+                // 写进凭证库 —— 那是身份漂移的第二个来源（同一台机器换个账号登录，
+                // 下次启动游戏看到的 SteamID 就变了，用户数据随之换目录）。
+                // 身份的唯一来源 = 导入的票据本身；compat 保留 BST 行为。
+                if (Config::GetDenuvoMode() == Config::DenuvoMode::Compat &&
+                    LuaConfig::IsOwned(authorizedAppId)) {
                     WriteSteamIdOnEndAuthorization();
                 }
             }

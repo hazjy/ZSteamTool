@@ -8,6 +8,7 @@
 #include "Utils/Logging/Log.h"
 #include "Hooks_Misc.h"
 #include "Utils/Config/LuaConfig.h"
+#include "Utils/Config/Config.h"
 
 #include <mutex>
 #include <unordered_map>
@@ -30,13 +31,19 @@ namespace {
         GetSteamIDResp resp{pWrite};
         if (!resp.ok()) return;
 
-        // Spoof whenever we have a pool-account ticket for this app, not just
-        // inside the Denuvo auth window. Denuvo reads its cached offline
-        // license on second launch and calls GetSteamID BEFORE or AFTER the
-        // auth window to verify it — if we only spoof inside the window the
-        // real SteamID leaks out and mismatches the license → 012.
-        // GetSpoofSteamID returns 0 for apps with no credential-store ticket
-        // (real owners, non-tracked apps) so the spoof is naturally scoped.
+        // [本地补丁 2026-09-13] 身份一致性 / Identity coherence.
+        // normal (默认) = 上游 OpenSteamTool 语义：只在 Denuvo 授权窗口内伪装成
+        // 出票账号（窗口内需要它去比对 eticket/offline license），窗口外一律返回
+        // 当前登录账号 —— 游戏按 SteamID 派生的用户数据（存档目录/云存档/设置）
+        // 因此始终绑定玩家自己的账号，从结构上杜绝“存档跑到出票账号名下”。
+        // compat = BST 现行行为（整场伪装），供窗口外仍会复验 SteamID 的严格标题
+        // 使用；代价是该游戏的用户数据会绑定出票账号。
+        const bool compatIdentity = Config::GetDenuvoMode() == Config::DenuvoMode::Compat;
+        if (!compatIdentity && !PipeManager::DenuvoAuth::IsAuthorizedPipe(pipe)) {
+            LOG_IPC_TRACE("IClientUser::GetSteamID: AppId={} not in authorization window (normal mode), skip spoofing", appId);
+            return;
+        }
+
         const uint64 spoofed = AppTicket::GetSpoofSteamID(appId);
         if (!spoofed) {
             return;
@@ -62,13 +69,19 @@ namespace {
         AppTicket::AppTicketSource ticketSource;
         if (PipeManager::DenuvoAuth::IsAuthorizedPipe(pipe)) {
             ticketSource = AppTicket::AppTicketSource::CredentialStoreOnly;
-        } else {
+        } else if (Config::GetDenuvoMode() == Config::DenuvoMode::Compat) {
             // Outside the auth window: prefer credential-store ticket (pool SteamID)
             // over ForgeOnly (which uses app 7's ticket and carries the real SteamID).
             // When the 858 network spoof is also active, both paths must agree on the
             // same SteamID or Denuvo cross-checks them and rejects (error 54).
             LOG_IPC_DEBUG("IClientUser::GetAppOwnershipTicketExtendedData: AppId={} not in authorization window, credential store preferred", appId);
             ticketSource = AppTicket::AppTicketSource::CredentialStoreThenForge;
+        } else {
+            // [本地补丁 2026-09-13] normal：窗口外与上游一致用 ForgeOnly。forge 票取自
+            // app 7 的缓存票，身份=当前登录账号，与窗口外 GetSteamID 返回的真实账号一致 ——
+            // 这是“身份不分裂”的另一半（compat 下这两者都指向出票账号）。
+            LOG_IPC_DEBUG("IClientUser::GetAppOwnershipTicketExtendedData: AppId={} not in authorization window (normal mode), forge only", appId);
+            ticketSource = AppTicket::AppTicketSource::ForgeOnly;
         }        
         if (!AppTicket::GetAppOwnershipTicket(appId, ticket, ticketSource)) return;
 

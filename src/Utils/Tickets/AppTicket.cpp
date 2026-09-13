@@ -1,6 +1,7 @@
 #include "AppTicket.h"
 #include "Hook/Hooks_Decryption.h"
 #include "OSTPlatform/include/SteamCredentialStore.h"
+#include "Utils/Config/Config.h"
 #include "Utils/Config/LuaConfig.h"
 #include "Utils/Logging/Log.h"
 
@@ -158,9 +159,16 @@ namespace AppTicket {
             LOG_DEBUG("GetSpoofSteamID for AppId {}: not in addappid, skip spoofing", appId);
             return 0;
         }
-        const uint64_t credentialSteamID = GetSteamIDFromCredentialStore(appId);
-        if (credentialSteamID != 0) {
-            return credentialSteamID;
+
+        // [本地补丁 2026-09-13] compat：凭证库 SteamID 优先（BST 现行行为不变）。
+        // normal：只认票据内身份 —— 注册表 Apps\<appid>\SteamID 是旧 compat 运行
+        // 写进去的“当时登录账号”，在 normal 下拿它做窗口内身份会和票据里的出票
+        // 账号对不上（Denuvo 交叉校验 → 012/54）。票据字节才是许可的真正身份。
+        if (Config::GetDenuvoMode() == Config::DenuvoMode::Compat) {
+            const uint64_t credentialSteamID = GetSteamIDFromCredentialStore(appId);
+            if (credentialSteamID != 0) {
+                return credentialSteamID;
+            }
         }
 
         // The SteamID baked into the cached AppOwnershipTicket is the same

@@ -92,6 +92,25 @@ enabled = false
 # Defaults to "<Steam>/cloud_redirect.dll" when unset.
 # library = "cloud_redirect.dll"
 
+[denuvo]
+# Which SteamID identity a game process is allowed to see. This decides whether
+# a game's per-user data (save folders, Steam Cloud, settings — anything the
+# game derives from the SteamID) stays bound to YOUR logged-in account.
+#
+#   "normal" (default) — upstream OpenSteamTool behaviour. The ticket's pool
+#       account is only presented while Denuvo runs its authorization handshake;
+#       for the rest of the session the game sees your logged-in account, so its
+#       saves/cloud stay bound to that account. Use this unless a title refuses
+#       to launch with an authorization error (e.g. 88500012 / error 012).
+#   "compat" — BetterSteamTools behaviour. The ticket's account is presented for
+#       the whole session. Titles that re-verify the SteamID outside the
+#       authorization window need this. Side effect: that game's per-user data
+#       binds to the TICKET's account, not yours — saves made under your own
+#       account will not be visible while compat is active.
+#
+# Takes effect immediately on file change (no Steam restart).
+mode = "normal"
+
 [remote]
 # Optional metadata mirror. Leave unset to use GitHub with jsDelivr fallback.
 # A custom mirror replaces the built-in remote sources and must include all

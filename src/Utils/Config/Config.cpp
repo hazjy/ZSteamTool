@@ -21,6 +21,7 @@ namespace {
         bool updateEnabled = true;
         std::vector<InjectDll> injectDlls;
         CloudSettings cloud;
+        DenuvoMode denuvoMode = DenuvoMode::Normal;
     };
 
     std::mutex g_mutex;
@@ -58,6 +59,23 @@ namespace {
         injectDlls             = snapshot.injectDlls;
         cloudEnabled           = snapshot.cloud.enabled;
         cloudLibrary           = snapshot.cloud.library;
+        denuvoMode             = snapshot.denuvoMode;
+    }
+
+    const char* ToString(DenuvoMode mode) {
+        return mode == DenuvoMode::Compat ? "compat" : "normal";
+    }
+
+    // One line per config load so the active identity model is always visible in
+    // the log; compat is loud because it silently rebinds a game's per-user data.
+    void LogDenuvoMode() {
+        const DenuvoMode mode = GetDenuvoMode();
+        if (mode == DenuvoMode::Compat) {
+            LOG_WARN("denuvo.mode=compat: pool-account SteamID is spoofed for the whole session; "
+                     "the game's per-user data (saves/cloud) binds to the ticket's account");
+        } else {
+            LOG_INFO("denuvo.mode=normal: outside the authorization window the game sees the logged-in account");
+        }
     }
 
     void ApplyManifestProvider(const std::string& provider) {
@@ -85,12 +103,14 @@ namespace {
             LOG_INFO("Config file not found, using defaults");
             ApplyManifestProvider(snapshot.manifestProvider);
             LoadResult result = ApplySnapshotLocked(snapshot);
-            LOG_INFO("Config loaded: manifest.url={} log.level={} lua.paths={} stats.enable_api={} remote.url_templates={}",
+            LOG_INFO("Config loaded: manifest.url={} log.level={} lua.paths={} stats.enable_api={} remote.url_templates={} denuvo.mode={}",
                      ManifestClient::ActiveProviderName(),
                      ToString(GetLogLevel()),
                      (uint32_t)GetLuaPaths().size(),
                      GetStatsEnableApi(),
-                     (uint32_t)GetRemoteUrlTemplates().size());
+                     (uint32_t)GetRemoteUrlTemplates().size(),
+                     ToString(snapshot.denuvoMode));
+            LogDenuvoMode();
             return result;
         }
 
@@ -197,14 +217,25 @@ namespace {
                     snapshot.cloud.library = *val;
             }
 
+            // [denuvo]
+            if (auto denuvo = tbl["denuvo"].as_table()) {
+                if (auto val = (*denuvo)["mode"].value<std::string>()) {
+                    if (*val == "compat")          snapshot.denuvoMode = DenuvoMode::Compat;
+                    else if (*val == "normal")     snapshot.denuvoMode = DenuvoMode::Normal;
+                    else LOG_WARN("Unknown denuvo.mode \"{}\", keeping default (normal)", *val);
+                }
+            }
+
             ApplyManifestProvider(snapshot.manifestProvider);
             LoadResult result = ApplySnapshotLocked(snapshot);
-            LOG_INFO("Config loaded: manifest.url={} log.level={} lua.paths={} stats.enable_api={} remote.url_templates={}",
+            LOG_INFO("Config loaded: manifest.url={} log.level={} lua.paths={} stats.enable_api={} remote.url_templates={} denuvo.mode={}",
                      ManifestClient::ActiveProviderName(),
-                     ToString(snapshot.logLevel),
-                     (uint32_t)snapshot.luaPaths.size(),
-                     snapshot.statsEnableApi,
-                     (uint32_t)snapshot.remoteUrlTemplates.size());
+                     ToString(GetLogLevel()),
+                     (uint32_t)GetLuaPaths().size(),
+                     GetStatsEnableApi(),
+                     (uint32_t)GetRemoteUrlTemplates().size(),
+                     ToString(snapshot.denuvoMode));
+            LogDenuvoMode();
             return result;
 
         } catch (const toml::parse_error& e) {
@@ -274,6 +305,11 @@ namespace {
             cloudEnabled,
             cloudLibrary,
         };
+    }
+
+    DenuvoMode GetDenuvoMode() {
+        std::lock_guard lock(g_mutex);
+        return denuvoMode;
     }
 
 }

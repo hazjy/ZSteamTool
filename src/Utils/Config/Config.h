@@ -31,6 +31,17 @@ namespace Config {
         std::string library;
     };
 
+    // [denuvo] — what SteamID identity a game process is allowed to observe.
+    //   Normal (default) = upstream OpenSteamTool semantics: GetSteamID is spoofed
+    //     only inside the Denuvo authorization window, so the game keeps the
+    //     logged-in account's identity the rest of the session and every
+    //     per-user thing derived from it (save folders, cloud, settings) stays
+    //     bound to that account.
+    //   Compat = BetterSteamTools behaviour: spoof for the whole session. Titles
+    //     that re-check the SteamID outside the window need this, at the cost of
+    //     binding the game's per-user data to the ticket's account.
+    enum class DenuvoMode { Normal, Compat };
+
     struct LoadResult {
         bool applied = false;
         bool luaPathsChanged = false;
@@ -44,6 +55,7 @@ namespace Config {
     std::vector<std::string> GetLuaPaths();
     std::vector<std::string> GetRemoteUrlTemplates();
     CloudSettings GetCloudSettings();
+    DenuvoMode GetDenuvoMode();
     bool GetStatsEnableApi();
     bool GetUpdateEnabled();
 
@@ -77,5 +89,8 @@ namespace Config {
     // [cloud] - optional Steam Cloud save redirection via CloudRedirect.
     inline bool cloudEnabled = false;
     inline std::string cloudLibrary;
+
+    // [denuvo] - SteamID identity mode (see DenuvoMode above).
+    inline DenuvoMode denuvoMode = DenuvoMode::Normal;
 
 }
