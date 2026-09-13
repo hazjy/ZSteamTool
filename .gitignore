@@ -22,3 +22,6 @@ build/
 
 # DLLs (keep only source files)
 !.deps/**/*.dll
+# 本地留存：智能体台账与 BST 对齐笔记（不随仓库分发）
+docs/dev/agents-log/
+docs/dev/bst-diff/
