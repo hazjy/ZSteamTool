@@ -36,4 +36,4 @@
 
 替换 Steam 根目录下的 `OpenSteamTool.dll` / `dwmapi.dll` / `xinput1_4.dll` 三个文件（升级前建议备份旧文件），`opensteamtool.toml` 按需更新，重启 Steam 生效。
 
-> 相关文档：发布细节与发布件原文见 `docs/dev/agents-log/`（索引含**版本对照**）；开发笔记 `docs/dev/DEV-NOTES.md`；事件与调研见工作区根 `doc/EVENTS/`。
+> 相关文档：上游基线与本地改动见 `docs/dev/UPSTREAM-SYNC.md`；开发笔记 `docs/dev/DEV-NOTES.md`；构建 / Lua API / 兼容性等技术细节见 `docs/upstream/README-en.md`。

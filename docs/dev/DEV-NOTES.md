@@ -1,15 +1,15 @@
 # ZSteamTool 内核开发笔记（DEV-NOTES）
 
-> 本仓库 = OpenSteamTool 内核二次开发（**2026-09-06 由 ZTool 更名**）。代码基线：上游 OpenSteamTool `2a08b0b` + 本地修复。**对齐基线：BetterSteamTools**（2026-09-08 已照搬并入并实机验证，对齐决策与勘误见工作区根 `doc/` 下的事实考证（内核侧））——参考"本尊"：`D:/Projects/OSTGUI/RefProjects/1-在用/BetterSteamTools`（OpenSteamTool 活跃 fork）；原版上游 `OpenSteamTool` 降存 `RefProjects/2-挂起/` 仅作参考。
+> 本仓库 = OpenSteamTool 内核二次开发（**2026-09-06 由 ZTool 更名**）。代码基线：上游 OpenSteamTool `2a08b0b` + 本地修复。**对齐基线：BetterSteamTools `c7b435f`**（2026-09-08 已照搬并入并实机验证）。基线与移植/改动清单见 `docs/dev/UPSTREAM-SYNC.md`（对外）；上游原始文档见 `docs/upstream/`。
 >
-> 本文只承载**项目结构与架构**；领域事实/机制考证/生态调研见工作区根 `doc/` 下的事实考证（内核侧）；事件时间线见 `../../doc/EVENTS/`。
+> 本文只承载**项目结构与架构**。对外文档：`README.md`（使用/安装/配置）、`docs/dev/UPSTREAM-SYNC.md`（上游基线与改动）、`docs/changelog/`（逐版本更新说明）；上游原始文档存档在 `docs/upstream/`。本机环境相关与内部调研笔记**不随仓库分发**。
 
 ## 1. 定位与仓库
 
 - 独立 git 仓库：单个 init 提交 = 上游 2a08b0b 源码 + onlinefix 480 三件套（LobbyInvite 改写 / 叠加层保持 480 / Persona 好友改写）；
 - 职责：注入 Steam 的解锁内核（3 个 DLL），供 OSTGUI（GUI 侧，`SteamDllService` 负责注入/卸载）配合使用；
 - 上游对照：对齐用源码见 `1-在用/BetterSteamTools`（暂定基线，fork 关系：OpenSteamTool 下游）；原版上游 `OPENSTEAMTOOL` 见 `2-挂起/OpenSteamTool`（仅参考不修改）；
-- 内核任务**不记入** OSTGUI 的 agents-log（约定见 OSTGUI `docs/dev/agents-log/README.md`）；本仓库变更记入 `docs/dev/agents-log/`（本地留存，不纳入 git）。
+- 内核任务的内部台账与调研笔记**本地留存、不随仓库分发**（`.gitignore` 已排除）；本仓库对外只提供 `docs/changelog/`（逐版本更新说明）与 `docs/dev/UPSTREAM-SYNC.md`（上游关系）。
 
 ## 2. 架构速览
 
@@ -33,7 +33,7 @@
   实际命令：`vcvars64.bat && cmake -S src -B build -G "Visual Studio 17 2022" -A x64 -T v145 && cmake --build build --config Debug`；依赖 `.deps/` 已预填（离线可用）；
 - **字符集**：`target_compile_options(OpenSteamTool PRIVATE /utf-8)`（显式；Release 缺位曾致中文注释按 CP936 解码破坏语法，2026-09-10 修复）；
 - **依赖**：FetchContent 缓存 `.deps/`（lua/spdlog/protobuf/tomlplusplus/detours 手动预填——本机 TLS 被加速器干扰，schannel 全线不可用；git 需 `http.sslBackend=openssl` + 合并根证书 CA bundle）；
-- 部署：替换 `d:/steam/` 下三个 DLL（原内核备份在 `ost-backups/`，回滚=拷回）；Debug 内核默认日志可用（toml 未设 `[log]` 时走 Debug 级）；
+- 部署：把三个 DLL 复制到 Steam 根目录（覆盖前先备份原文件，回滚即拷回）；日志级别由 `opensteamtool.toml` 的 `[log] level` 控制，未设置时走内核默认；
 - 验证清单：① 重启 Steam 正常加载、入库/游玩无回归；② 功能点按修复记录逐项。
 
 ## 4. 已知问题（env-less 启动器游戏）
@@ -55,9 +55,8 @@
 - `.deps` 需手动预填的原因同上（TLS）；
 - 上游同步：用 `git fetch origin <refs/pull/N/head>`（openssl）评估上游新修复，再决定移植。
 
-## 7. 变更台账
+## 7. 文档与变更记录
 
-- 按日台账：`docs/dev/agents-log/`（本地留存，不随 git 分发；索引见该目录 README）。
-- 版本说明：`docs/changelog/` **只放** `UPDATE-NOTES-*.md`（更新日志，随仓库分发，与 OSTGUI 同规范）；发布细节、构建与打包配方、包内 README 与配置模板原文一律归档到对应日期的台账页附录（`docs/dev/agents-log/`，本地留存），台账索引含版本对照。
-- 重要事件与调研：`../../doc/EVENTS/`（工作区根 doc 下，主题索引 README.md）。
-- 事实考证（BST 对齐 / Denuvo 模型 / 大更新技术映射与纪律）：工作区根 `doc/` 下的事实考证（内核侧）。
+- **对外**（随仓库分发）：`README.md`（使用 / 安装 / 配置）、`docs/changelog/UPDATE-NOTES-*.md`（逐版本更新说明）、`docs/dev/UPSTREAM-SYNC.md`（上游基线与本地改动清单）、`docs/upstream/`（上游原始英文文档存档）、`NOTICE`（版权与第三方归属）。
+- **本地留存**（`.gitignore` 排除，不随仓库分发）：内部变更台账、BST 对齐调研笔记、机器环境备注与事件考证笔记。
+- 版本号：`VERSION` 与 `src/CMakeLists.txt` 的 `project(... VERSION ...)` 需同步。

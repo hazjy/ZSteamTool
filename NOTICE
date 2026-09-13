@@ -1,0 +1,44 @@
+ZSteamTool — 版权与第三方归属声明
+================================
+
+本发行版（ZSteamTool）是 OpenSteamTool 的衍生作品，按 GNU General Public License v3.0
+分发（全文见 LICENSE）。以下为来源与第三方组件的归属说明。
+
+一、上游代码来源
+----------------
+1. OpenSteamTool
+   仓库：https://github.com/OpenSteam001/OpenSteamTool
+   许可：GNU GPL v3.0
+   基线：提交 2a08b0b（本仓库的代码起点）
+   Copyright (C) OpenSteamTool contributors
+
+2. BetterSteamTools
+   仓库：https://github.com/madoiscool/BetterSteamTools
+   许可：GNU GPL v3.0
+   基线：提交 c7b435f（其主体改动已对齐并入本仓库）
+   Copyright (C) BetterSteamTools contributors
+
+本仓库对上述代码进行了修改（下载链路、D 加密身份模式、联机会话身份、分发层裁剪等）。
+修改内容与同步方式见 docs/dev/UPSTREAM-SYNC.md；逐版本变更见 docs/changelog/。
+
+二、第三方库
+------------
+随源码构建、通过 CMake 拉取的第三方组件及其许可：
+
+  - Microsoft Detours         MIT License
+  - spdlog                    MIT License
+  - toml++                    MIT License
+  - Lua (lua.org)             MIT License
+  - Protocol Buffers (Google) BSD-3-Clause
+
+构建系统会在配置阶段获取这些依赖；其版权与许可声明归各自作者所有。
+
+三、可选外部组件（不随本仓库分发）
+----------------------------------
+  - CloudRedirect（云存档重定向）：LGPL-3.0。
+    仅当用户自行提供 cloud_redirect.dll 并设置 [cloud] enabled = true 时由本工具加载。
+
+四、免责声明
+------------
+本软件按“现状”提供，不附带任何明示或默示担保。使用者应自行确认其使用方式符合所在地法律、
+平台服务条款与相关软件许可协议。
