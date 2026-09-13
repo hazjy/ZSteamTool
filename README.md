@@ -15,7 +15,7 @@
   </p>
 
   <p>
-    当前版本 <b>v1.1.0</b> · 配套图形界面：<a href="https://github.com/hazjy/OSTGUI"><b>OSTGUI</b></a>
+    配套图形界面：<a href="https://github.com/hazjy/OSTGUI"><b>OSTGUI</b></a>
   </p>
 </div>
 
