@@ -15,7 +15,7 @@
   </p>
 
   <p>
-    当前版本 <b>v1.1.0</b> · 配套图形界面：<b>OSTGUI</b>
+    当前版本 <b>v1.1.0</b> · 配套图形界面：<a href="https://github.com/hazjy/OSTGUI"><b>OSTGUI</b></a>
   </p>
 </div>
 
@@ -28,7 +28,7 @@ ZSteamTool 是一个注入 Steam 客户端的内核（三个 DLL），用来解�
 | `OpenSteamTool.dll` | 主逻辑（Hook、配置、Lua 解析、票据与身份处理） |
 | `dwmapi.dll` / `xinput1_4.dll` | 加载器（Steam 启动时自动加载 `OpenSteamTool.dll`，无需手动注入） |
 
-配套的图形界面 **OSTGUI**（清单源管理、入库、联机启动、D 加密模式开关等）另行分发。
+配套的图形界面 **[OSTGUI](https://github.com/hazjy/OSTGUI)**（清单源管理、入库、联机启动、D 加密模式开关等）；本内核是它的运行后端，两者配合使用。
 
 ## 与上游的关系（必读）
 
