@@ -4,7 +4,12 @@ project(OpenSteamTool VERSION 1.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
-set(OPENSTEAMTOOL_VERSION "${PROJECT_VERSION}" CACHE STRING "Version string embedded into OpenSteamTool.dll")
+# Version baked into the DLL (surfaced in SteamDiagnostics output).
+# Single source of truth = project(VERSION ...) above. Deliberately NOT a CACHE
+# variable: a value left in CMakeCache.txt by an older configure silently kept the
+# old version baked in (observed: a 1.1.0 tree still reporting 1.0.0), because
+# `set(... CACHE ...)` does not overwrite an existing cache entry.
+set(OPENSTEAMTOOL_VERSION "${PROJECT_VERSION}")
 
 # Allow CMAKE_MSVC_RUNTIME_LIBRARY to control runtime selection for all targets,
 # including dependencies pulled in via FetchContent.
