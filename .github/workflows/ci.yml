@@ -25,6 +25,9 @@ jobs:
 
       - uses: ilammy/msvc-dev-cmd@v1
 
+      # The runner's default MSVC toolset is used on purpose (the code is C++20
+      # and builds with the toolset shipped in the image). On machines that need
+      # a specific toolset, build locally with: set TOOLSET=<ver> && build.bat
       - name: Configure
         run: cmake -S src -B build -G "Ninja Multi-Config"
 
@@ -35,6 +38,6 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: OpenSteamTool-${{ matrix.config }}-pr${{ github.event.pull_request.number || github.run_number }}
+          name: ZSteamTool-${{ matrix.config }}-pr${{ github.event.pull_request.number || github.run_number }}
           path: build/${{ matrix.config }}/
           retention-days: 7

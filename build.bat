@@ -8,6 +8,9 @@ REM ---------------------------------------------------------------------------
 REM Configurable build options
 REM   GENERATOR  - CMake generator (default: auto-detect)
 REM   ARCH       - Architecture for multi-config generators (default: x64)
+REM   TOOLSET    - MSVC toolset for Visual Studio generators (e.g. v143, v145).
+REM                Leave empty to use the generator default. Some machines need
+REM                an explicit toolset; pass it as: set TOOLSET=v145 && build.bat
 REM   CONFIGS    - Configurations to build, space-separated (default: Release Debug)
 REM ---------------------------------------------------------------------------
 if "%GENERATOR%"=="" (
@@ -21,10 +24,14 @@ if "%GENERATOR%"=="" (
 if "%ARCH%"=="" set "ARCH=x64"
 if "%CONFIGS%"=="" set "CONFIGS=Release Debug"
 
+set "TOOLSET_ARG="
+if not "%TOOLSET%"=="" set "TOOLSET_ARG=-T %TOOLSET%"
+
 echo [INFO] Configuring with generator: %GENERATOR%
 echo "%GENERATOR%" | findstr /I /C:"Visual Studio" >nul
 if not errorlevel 1 (
-    cmake -S src -B build -G "%GENERATOR%" -A %ARCH%
+    if not "%TOOLSET%"=="" echo [INFO] MSVC toolset: %TOOLSET%
+    cmake -S src -B build -G "%GENERATOR%" -A %ARCH% %TOOLSET_ARG%
 ) else (
     cmake -S src -B build -G "%GENERATOR%"
 )

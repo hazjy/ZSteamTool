@@ -19,7 +19,7 @@
 // no deployment's backend; point a build at yours with:
 //   cmake -B build -DOST_TOKEER_URL="https://your-host"
 #ifndef OST_TOKEER_URL
-#define OST_TOKEER_URL "https://your-host"
+#define OST_TOKEER_URL ""
 #endif
 
 namespace TokeerBridge {
