@@ -63,8 +63,10 @@ timeout_recv_ms    = 10000
 enable_api = true
 
 # Additional Lua config directories (optional).
-# Files are loaded after the default <Steam>/config/lua folder.
-# The default folder is always loaded last so user files take priority.
+# The kernel always watches <Steam>/config/lua (where the GUI writes its configs)
+# and <Steam>/config/stplug-in (legacy BST-era location, still read so older
+# setups keep working). Extra directories listed here are loaded first, the
+# defaults last.
 # Example — load a custom directory on another drive:
 #   [lua]
 #   paths = ["D:/my-steam-config/lua"]

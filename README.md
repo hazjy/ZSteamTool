@@ -58,7 +58,7 @@ ZSteamTool 是一个注入 Steam 客户端的内核（三个 DLL），用来解�
 1. 备份 Steam 根目录下现有的 `OpenSteamTool.dll`、`dwmapi.dll`、`xinput1_4.dll`；
 2. 从发布包的 `Release\`（日常）或 `Debug\`（排障，日志更全）取三个 DLL，复制到 Steam 根目录覆盖；
 3. 配置模板 `opensteamtool.toml` 放到 Steam 根目录（**升级用户不必替换**：缺少 `[denuvo]` 段时默认即 `normal`，覆盖反而会丢掉你已改过的配置）；
-4. Lua 配置放到 `<Steam>\config\lua\`（不是 `config\stplug-in`）；
+4. Lua 配置放到 `<Steam>\config\lua\`（内核同时兼容读取旧的 `config\stplug-in`）；
 5. 重启 Steam。
 
 ## 配置

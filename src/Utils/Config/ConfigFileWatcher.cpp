@@ -46,7 +46,13 @@ bool ContainsConfigChange(
 }
 
 std::vector<std::string> BuildLuaWatchDirs() {
-    return LuaConfig::MergeWatchDirs(Config::GetLuaPaths(), g_defaultLuaDir);
+    // Primary default dir (handed in at startup) plus the legacy BST-era
+    // directory, so configs written before the default moved to config\lua keep
+    // working. Both are merged with the user's [lua] paths.
+    std::vector<std::string> dirs = LuaConfig::MergeWatchDirs(Config::GetLuaPaths(), g_defaultLuaDir);
+    const std::filesystem::path steamRoot = std::filesystem::path(g_configPath).parent_path();
+    dirs = LuaConfig::MergeWatchDirs(dirs, (steamRoot / "config" / "stplug-in").string());
+    return dirs;
 }
 
 void RestartLuaWatcher() {

@@ -26,7 +26,10 @@ bool InitializeSteamComponents()
     sprintf_s(SteamclientPath, kRuntimePathCapacity, "%s\\steamclient64.dll",  SteamInstallPath);
     sprintf_s(SteamUIPath,     kRuntimePathCapacity, "%s\\steamui.dll",        SteamInstallPath);
     sprintf_s(DiversionPath,   kRuntimePathCapacity, "%s\\bin\\diversion.dll", SteamInstallPath);
-    sprintf_s(LuaDir,          kRuntimePathCapacity, "%s\\config\\stplug-in",  SteamInstallPath);
+    // Primary Lua directory: what the GUI (OSTGUI) writes to. The BST-era
+    // directory is still read as a secondary source for backward compatibility.
+    sprintf_s(LuaDir,          kRuntimePathCapacity, "%s\\config\\lua",        SteamInstallPath);
+    sprintf_s(LuaDirLegacy,    kRuntimePathCapacity, "%s\\config\\stplug-in",  SteamInstallPath);
     sprintf_s(ConfigPath,      kRuntimePathCapacity, "%s\\opensteamtool.toml", SteamInstallPath);
     
     client_hModule = OSTPlatform::DynamicLibrary::Load(SteamclientPath);
@@ -74,6 +77,9 @@ static uint32_t InitThread(OSTPlatform::DynamicLibrary::ModuleHandle selfModule)
 
     std::vector<std::string> watchDirs =
         LuaConfig::MergeWatchDirs(Config::GetLuaPaths(), std::string(LuaDir));
+    // Also read the legacy BST-era directory so configs written before the
+    // default moved to config\lua keep working (dedup handled by MergeWatchDirs).
+    watchDirs = LuaConfig::MergeWatchDirs(watchDirs, std::string(LuaDirLegacy));
     for (const auto& dir : watchDirs)
         LuaConfig::ParseDirectory(dir);
 
