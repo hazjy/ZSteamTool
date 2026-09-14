@@ -33,7 +33,7 @@ inline char SteamInstallPath[kRuntimePathCapacity] = {};
 inline char SteamclientPath[kRuntimePathCapacity]  = {};
 inline char SteamUIPath[kRuntimePathCapacity]      = {};
 inline char DiversionPath[kRuntimePathCapacity]    = {};
-inline char LuaDir[kRuntimePathCapacity]           = {};   // fixed default: <Steam>\config\lua
+inline char LuaDir[kRuntimePathCapacity]           = {};   // fallback lua dir: <Steam>\config\lua
 inline char ConfigPath[kRuntimePathCapacity]       = {};
 
 // The default session AppId used by -onlinefix (SpaceWar). Overridable per

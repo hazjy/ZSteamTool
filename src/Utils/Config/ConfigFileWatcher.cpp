@@ -46,10 +46,11 @@ bool ContainsConfigChange(
 }
 
 std::vector<std::string> BuildLuaWatchDirs() {
-    // Single fixed default directory (config\lua) plus the user's [lua] paths.
-    // The legacy BST-era config\stplug-in is intentionally NOT scanned: loading
-    // lua from two directories could apply conflicting definitions.
-    return LuaConfig::MergeWatchDirs(Config::GetLuaPaths(), g_defaultLuaDir);
+    // The user's [lua] paths win outright; config\lua is only the fallback when the
+    // list is empty. Exactly one source of lua — the GUI keeps that entry pointed at
+    // the directory it writes, so two directories never contribute conflicting
+    // definitions (the legacy BST-era config\stplug-in is not scanned at all).
+    return LuaConfig::ResolveWatchDirs(Config::GetLuaPaths(), g_defaultLuaDir);
 }
 
 void RestartLuaWatcher() {

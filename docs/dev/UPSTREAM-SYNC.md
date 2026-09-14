@@ -40,7 +40,7 @@
 ## 4. 明确不采用
 
 - **`bst://` 兑换码桥 / 自更新**：依赖外部服务与自动下载，本发行版为手动部署模式；
-- **目录迁移 `config\lua` → `config\stplug-in`**：本项目**只读** `config\lua`（即 GUI 写入的位置）；`config\stplug-in` 明确不扫描，避免同一批 lua 从两个目录被加载两次而互相冲突；
+- **目录迁移 `config\lua` → `config\stplug-in`**：Lua 目录**只有一处生效** —— `[lua] paths` 非空时就是它（GUI 的「Lua 路径」会写这一行），为空时才是 `config\lua`；`config\stplug-in` 明确不扫描，避免同一批 lua 从两个目录被加载两次而互相冲突；
 - **`eticket` 在线铸造**：需要后端，默认关闭（编译期 `OST_ETICKET_URL` 为空即禁用）。
 
 ## 5. 以后怎么跟上上游

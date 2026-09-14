@@ -26,9 +26,10 @@ bool InitializeSteamComponents()
     sprintf_s(SteamclientPath, kRuntimePathCapacity, "%s\\steamclient64.dll",  SteamInstallPath);
     sprintf_s(SteamUIPath,     kRuntimePathCapacity, "%s\\steamui.dll",        SteamInstallPath);
     sprintf_s(DiversionPath,   kRuntimePathCapacity, "%s\\bin\\diversion.dll", SteamInstallPath);
-    // Fixed default Lua directory: <Steam>\config\lua (what the GUI writes to).
-    // Deliberately the ONLY default — the old BST-era config\stplug-in directory
-    // is NOT scanned, so lua files can never be loaded twice from two locations.
+    // Fallback Lua directory: <Steam>\config\lua (what the GUI writes to). Used only
+    // while [lua] paths in opensteamtool.toml is empty — the GUI writes that entry
+    // whenever the user picks a different directory, so exactly one directory is
+    // scanned and lua files can never be loaded twice from two locations.
     sprintf_s(LuaDir,          kRuntimePathCapacity, "%s\\config\\lua",        SteamInstallPath);
     sprintf_s(ConfigPath,      kRuntimePathCapacity, "%s\\opensteamtool.toml", SteamInstallPath);
     
@@ -76,7 +77,7 @@ static uint32_t InitThread(OSTPlatform::DynamicLibrary::ModuleHandle selfModule)
     IPCLoader::Load(SteamclientPath);
 
     std::vector<std::string> watchDirs =
-        LuaConfig::MergeWatchDirs(Config::GetLuaPaths(), std::string(LuaDir));
+        LuaConfig::ResolveWatchDirs(Config::GetLuaPaths(), std::string(LuaDir));
     for (const auto& dir : watchDirs)
         LuaConfig::ParseDirectory(dir);
 

@@ -876,8 +876,8 @@ namespace LuaConfig{
     }
 
     // ── directory scanner ────────────────────────────────────────
-    std::vector<std::string> MergeWatchDirs(const std::vector<std::string>& configured,
-                                            const std::string& defaultDir) {
+    std::vector<std::string> ResolveWatchDirs(const std::vector<std::string>& configured,
+                                              const std::string& defaultDir) {
         namespace fs = std::filesystem;
 
         // Canonical, case-folded key for a directory so relative and absolute spellings
@@ -906,7 +906,7 @@ namespace LuaConfig{
         };
 
         for (const auto& d : configured) add(d);
-        add(defaultDir);   // appended only if it isn't already covered above
+        if (out.empty()) add(defaultDir);   // configured paths win; default only as fallback
         return out;
     }
 

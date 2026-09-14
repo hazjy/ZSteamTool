@@ -58,7 +58,7 @@ ZSteamTool 是一个注入 Steam 客户端的内核（三个 DLL），用来解�
 1. 备份 Steam 根目录下现有的 `OpenSteamTool.dll`、`dwmapi.dll`、`xinput1_4.dll`；
 2. 从发布包的 `Release\`（日常）或 `Debug\`（排障，日志更全）取三个 DLL，复制到 Steam 根目录覆盖；
 3. 配置模板 `opensteamtool.toml` 放到 Steam 根目录（**升级用户不必替换**：缺少 `[denuvo]` 段时默认即 `normal`，覆盖反而会丢掉你已改过的配置）；
-4. Lua 配置放到 `<Steam>\config\lua\`（内核**只**扫描这一个默认目录；`config\stplug-in` 不再读取，避免两个目录的 lua 定义冲突）；
+4. Lua 配置放到 `<Steam>\config\lua\`；要换目录就在 OSTGUI 的「Lua 路径」里改，或直接写 `opensteamtool.toml` 的 `[lua] paths`（**内核只扫描一处**，`config\stplug-in` 永不读取）；
 5. 重启 Steam。
 
 ## 配置
@@ -70,7 +70,7 @@ ZSteamTool 是一个注入 Steam 客户端的内核（三个 DLL），用来解�
 | `[denuvo] mode` | `normal`（默认）= 仅 D 加密授权握手期间使用票据身份，其余时间按**你当前登录的账号**运行 → 游戏存档 / 云存档绑定你自己的账号；`compat` = 整场使用票据账号（严格标题用，**代价是该游戏用户数据绑定出票账号**） |
 | `[manifest]` | 请求码源与超时；若 `config/lua/manifest.lua` 定义了 `fetch_manifest_code(_ex)`，Lua 优先 |
 | `[log] level` | 日志级别（Debug 版写 `<Steam>\opensteamtool\*.log`） |
-| `[lua] paths` | 附加 Lua 配置目录（默认 `<Steam>\config\lua` 最后加载，用户配置优先） |
+| `[lua] paths` | Lua 配置目录；**非空时只扫描这里**（GUI 改「Lua 路径」会自动写入本行并热重载），留空则用默认 `<Steam>\config\lua` |
 | `[inject]` | 可选的游戏进程注入（默认关） |
 | `[cloud]` | 可选云存档重定向（需自备 `cloud_redirect.dll`，默认关） |
 | `[remote]` | 自定义元数据镜像（默认走 GitHub + jsDelivr 回退） |

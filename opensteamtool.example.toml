@@ -62,12 +62,13 @@ timeout_recv_ms    = 10000
 # Priority: setStat > stats API when enabled and valid > hardcoded preset SteamID.
 enable_api = true
 
-# Additional Lua config directories (optional).
-# The kernel watches exactly ONE default directory: <Steam>/config/lua (where the
-# GUI writes its configs). The legacy BST-era config/stplug-in is deliberately NOT
-# scanned — loading lua from two directories could apply conflicting definitions.
-# Extra directories listed here are loaded first, the default last.
-# Example — load a custom directory on another drive:
+# Lua config directory. When this list is non-empty the kernel scans EXACTLY these
+# directories and nothing else — that is how OSTGUI points the kernel at whatever
+# directory you picked in 设置 → 基本设置 → Lua 路径 (the GUI writes this line for you,
+# and the kernel hot-reloads it, no Steam restart needed).
+# Leave the list empty to use the built-in default <Steam>/config/lua.
+# The legacy BST-era config/stplug-in is never scanned.
+# Example — keep lua on another drive:
 #   [lua]
 #   paths = ["D:/my-steam-config/lua"]
 [lua]
