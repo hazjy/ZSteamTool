@@ -877,13 +877,26 @@ namespace LuaConfig{
 
     // ── directory scanner ────────────────────────────────────────
     std::vector<std::string> ResolveWatchDirs(const std::vector<std::string>& configured,
-                                              const std::string& defaultDir) {
+                                              const std::string& defaultDir,
+                                              const std::string& installRoot) {
         namespace fs = std::filesystem;
 
-        // Canonical, case-folded key for a directory so relative and absolute spellings
-        // of the same location compare equal. weakly_canonical resolves against the
-        // current working directory (Steam's install root at runtime), matching how the
-        // paths are later opened.
+        // Relative entries ("config/lua", "lua") are resolved against the Steam install
+        // root, NOT against whatever the process working directory happens to be. The
+        // kernel is injected into Steam, whose CWD is not guaranteed to be the install
+        // root, and weakly_canonical() resolves against the CWD — with the old code a
+        // relative entry pointed somewhere else entirely (often a directory that does
+        // not exist), silently loading none of the user's lua files.
+        auto resolve = [&installRoot](const std::string& p) -> std::string {
+            fs::path path(p);
+            if (!path.is_absolute() && !installRoot.empty()) {
+                path = fs::path(installRoot) / path;
+            }
+            return path.string();
+        };
+
+        // Canonical, case-folded key so relative and absolute spellings of the same
+        // location compare equal.
         auto key = [](const std::string& p) -> std::string {
             std::error_code ec;
             fs::path c = fs::weakly_canonical(p, ec);
@@ -899,10 +912,11 @@ namespace LuaConfig{
         std::vector<std::string> seen;
         auto add = [&](const std::string& dir) {
             if (dir.empty()) return;
-            const std::string k = key(dir);
+            const std::string full = resolve(dir);
+            const std::string k = key(full);
             if (std::find(seen.begin(), seen.end(), k) != seen.end()) return;
             seen.push_back(k);
-            out.push_back(dir);
+            out.push_back(full);
         };
 
         for (const auto& d : configured) add(d);

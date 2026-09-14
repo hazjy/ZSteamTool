@@ -37,14 +37,16 @@ namespace LuaConfig{
     void ParseDirectory(const std::string& directory);
     void ReloadDirectories(const std::vector<std::string>& directories, bool clearPendingAdditions = false);
 
-    // Resolve the Lua directories to watch. When the user configured any [lua] paths
-    // they are authoritative (the GUI points the kernel at the directory it writes to)
-    // and the built-in default is NOT added on top — only one source of lua, so two
-    // directories can never contribute conflicting definitions. The default is the
-    // fallback for an empty list. Duplicates by resolved location are dropped, keeping
-    // the order of `configured`.
+    // Resolve the Lua directories to watch. Relative entries are resolved against
+    // installRoot (the Steam directory), never against the process working directory.
+    // When the user configured any [lua] paths they are authoritative (the GUI points
+    // the kernel at the directory it writes to) and the built-in default is NOT added
+    // on top — only one source of lua, so two directories can never contribute
+    // conflicting definitions. The default is the fallback for an empty list.
+    // Duplicates by resolved location are dropped, keeping the order of `configured`.
     std::vector<std::string> ResolveWatchDirs(const std::vector<std::string>& configured,
-                                              const std::string& defaultDir);
+                                              const std::string& defaultDir,
+                                              const std::string& installRoot);
 
     bool HasManifestCodeFunc();
     bool CallManifestFetchCode(uint64_t gid, uint64_t* outCode);

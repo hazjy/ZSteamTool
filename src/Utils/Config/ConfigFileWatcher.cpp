@@ -47,10 +47,11 @@ bool ContainsConfigChange(
 
 std::vector<std::string> BuildLuaWatchDirs() {
     // The user's [lua] paths win outright; config\lua is only the fallback when the
-    // list is empty. Exactly one source of lua — the GUI keeps that entry pointed at
-    // the directory it writes, so two directories never contribute conflicting
-    // definitions (the legacy BST-era config\stplug-in is not scanned at all).
-    return LuaConfig::ResolveWatchDirs(Config::GetLuaPaths(), g_defaultLuaDir);
+    // list is empty. Relative entries resolve against the Steam directory (the config
+    // file lives there), not against the process working directory.
+    const std::string installRoot =
+        std::filesystem::path(g_configPath).parent_path().string();
+    return LuaConfig::ResolveWatchDirs(Config::GetLuaPaths(), g_defaultLuaDir, installRoot);
 }
 
 void RestartLuaWatcher() {

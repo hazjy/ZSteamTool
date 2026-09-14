@@ -77,7 +77,7 @@ static uint32_t InitThread(OSTPlatform::DynamicLibrary::ModuleHandle selfModule)
     IPCLoader::Load(SteamclientPath);
 
     std::vector<std::string> watchDirs =
-        LuaConfig::ResolveWatchDirs(Config::GetLuaPaths(), std::string(LuaDir));
+        LuaConfig::ResolveWatchDirs(Config::GetLuaPaths(), std::string(LuaDir), std::string(SteamInstallPath));
     for (const auto& dir : watchDirs)
         LuaConfig::ParseDirectory(dir);
 
