@@ -19,6 +19,11 @@ namespace Hooks_Misc {
     // True while a -onlinefix game is the active spawn.
     bool IsOnlineFixActive();
 
+    // Bind the -onlinefix session to its game process (called from the pipe
+    // handshake) and start the exit watcher. The session state only describes
+    // that process, so it is dropped as soon as the process exits.
+    void TrackOnlineFixGameProcess(PID_t pid);
+
     // Call when the game uses SteamNetworkingSockets (IPC interface 46).
     void NotifyNetworkingSocketsUsed();
 

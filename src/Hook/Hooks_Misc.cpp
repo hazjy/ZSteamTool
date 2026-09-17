@@ -2,6 +2,10 @@
 #include "HookMacros.h"
 #include "Utils/HookSupport/VehCommon.h"
 #include "dllmain.h"
+#include "OSTPlatform/include/Process.h"
+
+#include <thread>
+#include <windows.h>
 
 namespace {
     // ── Resolve-only functions ─────────────────────────────────────
@@ -13,7 +17,9 @@ namespace {
     CAPTURE_THIS_FUNC(GetAppDataFromAppInfo,  int64,        g_pCAppInfoCache, void*, AppId_t, const char*, uint8*, int32);
 
     // Assumes one game at a time.  Set by SpawnProcess VEH when -onlinefix
-    // is detected; cleared when a non-onlinefix game launches.
+    // is detected; cleared when a non-onlinefix game launches, or when the
+    // session's game process exits (see TrackOnlineFixGameProcess /
+    // TickOnlineFixSession).
     AppId_t   g_OnlineFixRealAppId;
     // Session identity for the -onlinefix launch (Spacewar by default).
     // Overridable with "-onlinefix=<appid>" / "-onlinefix <appid>" on the
@@ -24,7 +30,59 @@ namespace {
     // Set by -realappid on the same command line. Suppresses the P2P appid flip
     // for this launch only — see ShouldReportOnlineFixAppId.
     bool      g_SuppressAppIdFlip;
+    // The -onlinefix session's game process (bound on its pipe handshake).
+    // The state above only ever describes THAT process, so it must be dropped
+    // once that process is gone — otherwise a later launch that bypasses
+    // Steam's spawn path (e.g. the GUI's OnlineHost launcher) inherits a stale
+    // "onlinefix active" state: friend persona entries, LobbyInvite gameIDs and
+    // the P2P flip gate all keep getting rewritten for a game that is not in an
+    // onlinefix session at all.
+    PID_t     g_OnlineFixGamePid;
+    std::atomic<bool> g_OnlineFixWatcherStop{false};
     std::unordered_map<AppId_t, std::string> g_GameNameCache;
+
+    // Drop everything that describes the -onlinefix session.
+    void ResetOnlineFixSession(const char* reason) {
+        if (!g_OnlineFixRealAppId) return;
+        LOG_MISC_INFO("OnlineFix session cleared ({}): game pid={}, real appid {} -> 0",
+                      reason, g_OnlineFixGamePid, g_OnlineFixRealAppId);
+        g_OnlineFixRealAppId = 0;
+        g_NetworkingSocketsActive = false;
+        g_SuppressAppIdFlip = false;
+        g_SessionAppId = kOnlineFixAppId;
+        g_OnlineFixGamePid = 0;
+    }
+
+    // Wait on a handle taken WHILE the game was alive. A "does this pid exist"
+    // probe cannot be used here: a terminated-but-not-yet-reaped process still
+    // answers OpenProcess/GetProcessTimes (Steam itself keeps a handle on its
+    // tracked game processes), so such a probe never sees the death. A handle
+    // signals on exit and is immune to pid reuse.
+    void StartOnlineFixGameWatcher(PID_t pid) {
+        HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
+        if (!process) {
+            LOG_MISC_WARN("OnlineFix: OpenProcess(SYNCHRONIZE) failed for game pid={} (error={}); "
+                          "session state will only be dropped on the next non-onlinefix launch",
+                          pid, GetLastError());
+            return;
+        }
+
+        std::thread([pid, process] {
+            for (;;) {
+                const DWORD wait = WaitForSingleObject(process, 1000);
+                if (wait == WAIT_OBJECT_0) {
+                    if (g_OnlineFixGamePid == pid) ResetOnlineFixSession("game process exited");
+                    break;
+                }
+                // Anything but a timeout (WAIT_FAILED/WAIT_ABANDONED) means we can
+                // no longer trust the handle; bail out and leave the state alone.
+                if (wait != WAIT_TIMEOUT) break;
+                // Superseded by a newer session, or the DLL is going away.
+                if (g_OnlineFixWatcherStop || g_OnlineFixGamePid != pid) break;
+            }
+            CloseHandle(process);
+        }).detach();
+    }
 
 
     // ── SpawnProcess interception ────────────────────────────────────────────
@@ -72,6 +130,8 @@ namespace {
             // already per-game in Steam, so this needs no appid list of its own.
             g_SuppressAppIdFlip = strstr(cmdLine, "-realappid") != nullptr;
             g_SessionAppId = ParseSessionAppId(cmdLine);
+            // New session: the game process is bound on its first pipe handshake.
+            g_OnlineFixGamePid = 0;
             pGameID->SetAppID(g_SessionAppId);
             LOG_MISC_INFO("SpawnProcess: appid {} -> {} (session), realappid={}, cmd=\"{}\"",
                           appId, g_SessionAppId, g_SuppressAppIdFlip, cmdLine);
@@ -79,6 +139,7 @@ namespace {
             g_OnlineFixRealAppId = 0;
             g_SuppressAppIdFlip = false;
             g_SessionAppId = kOnlineFixAppId;
+            g_OnlineFixGamePid = 0;
         }
     }
 
@@ -159,6 +220,7 @@ namespace Hooks_Misc {
     }
 
     void Uninstall() {
+        g_OnlineFixWatcherStop = true;
         UNHOOK_BEGIN();
         UNINSTALL_HOOK(BuildSpawnEnvBlock);
         UNINSTALL_HOOK(OptedInMask);
@@ -188,6 +250,17 @@ namespace Hooks_Misc {
 
     bool IsOnlineFixActive() {
         return g_OnlineFixRealAppId != 0;
+    }
+
+    void TrackOnlineFixGameProcess(PID_t pid) {
+        // Only the first game process after a -onlinefix launch owns the
+        // session; later handshakes belong to children/helpers of that game.
+        if (!g_OnlineFixRealAppId || pid == 0 || g_OnlineFixGamePid != 0) return;
+
+        g_OnlineFixGamePid = pid;
+        LOG_MISC_INFO("OnlineFix session bound to game pid={} (real appid {})",
+                      pid, g_OnlineFixRealAppId);
+        StartOnlineFixGameWatcher(pid);
     }
 
     AppId_t SessionAppId() {
