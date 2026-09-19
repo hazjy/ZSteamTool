@@ -37,6 +37,16 @@ configure_file(
     @ONLY
 )
 
+# Windows 版本资源：让 OpenSteamTool.dll 自带版本号。
+# 编译进去的字符串（OPENSTEAMTOOL_VERSION）只有 Debug 日志和诊断弹窗能看，
+# Release 无日志、外部读不到；资源管理器属性 / FileVersionInfo 才是通用读法。
+enable_language(RC)
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.rc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc"
+    @ONLY
+)
+
 # ---------------------------------------------------------------------------
 # Dependency recipes (FetchContent-backed, cached at <repo>/.deps).
 # ---------------------------------------------------------------------------
@@ -156,6 +166,9 @@ add_library(OpenSteamTool SHARED
 
     # protobuf generated sources (full in Debug, lite in Release)
     "${PROTO_GEN_DIR}/steam_messages.pb.cc"
+
+    # 版本资源（configure_file 生成）
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc"
 )
 
 # Header search path — per-config include directory
