@@ -150,8 +150,9 @@ void OnHandshake(CPipeClient* pipe) {
                   appIdFromPipe, gameProcess, trackedApp, snapshot.DebugString());
 
     // Feature side effects run without holding the registry lock.
-    // -onlinefix 会话绑定到它的游戏进程：它退出后由 RunFrame 巡检清空状态，
-    // 免得后续绕过 Steam spawn 的启动（GUI 的 OnlineHost）继承到陈旧状态。
+    // -onlinefix 会话绑定到它的游戏进程：该进程退出后由看门狗线程立即清空状态
+    // （Hooks_Misc::StartOnlineFixGameWatcher），免得后续绕过 Steam spawn 的启动
+    // （GUI 的 OnlineHost）继承到陈旧状态。
     if (ctx.gameProcess) Hooks_Misc::TrackOnlineFixGameProcess(ctx.process.pid);
 
     DenuvoAuth::Apply(ctx);

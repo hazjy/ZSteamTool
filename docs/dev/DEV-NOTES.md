@@ -24,7 +24,10 @@
   - `Hooks_Decryption`：`ConfigStoreGetBinary` 拦 depot 解密密钥；备 apptickets\7；
   - `Hooks_Manifest`/`KeyValues`：`BuildDepotDependency` 锁 manifest GID；
 - **支撑模块**：`PipeManager`（IPC 握手 + 进程快照 + DenuvoAuth）、`LuaConfig`（Lua 热重载）、`SteamMetadata`（Pattern/IPC 远程 TOML）、`OSTPlatform`（平台抽象）、`Tickets/AppTicket + SteamCredentialStore`（票据 / 注册表）。
-- **联机会话身份**：`-onlinefix` 默认 Spacewar(480)，可由 `-onlinefix=<appid>` / `-onlinefix <appid>` 指定其它会话身份（解析在 `SpawnProcess`，全链路 8 处使用 `Hooks_Misc::SessionAppId()` 一致化）。
+- **联机会话身份（`-onlinefix`）**：默认 Spacewar(480)，`-onlinefix=<appid>` / `-onlinefix <appid>` 可指定其它会话身份（解析在 `Hooks_Misc.cpp: ParseSessionAppId`，由 `SpawnProcess` 的 VEH 回调 `OnSpawnProcessHit` 调用；其它 `-onlinefix*` 写法一律回落 480）。会话身份统一由 `Hooks_Misc::SessionAppId()` 提供：外部调用点 **7 处**（`Hooks_CallBack` ×1、`Hooks_IPC_ISteamUser` ×1、`Hooks_NetPacket` ×5），另有 `Hooks_Misc` 内部 2 处。一次只允许一个会话。
+- **会话状态的生命周期（v1.1.3 起）**：`g_OnlineFixRealAppId` / `g_SessionAppId` / `g_NetworkingSocketsActive` / `g_SuppressAppIdFlip` 只描述**当前那一个游戏进程**。该进程在**管道握手**时被绑定（`PipeManager::OnHandshake` → `Hooks_Misc::TrackOnlineFixGameProcess`），看门狗线程 `StartOnlineFixGameWatcher` 持有句柄轮询，**它一退出立刻 `ResetOnlineFixSession("game process exited")`**（上述字段 + `g_OnlineFixGamePid` 一次清干净）。旧版要等"下一个不带 `-onlinefix` 的启动"才清，于是绕过 Steam spawn 的启动方式（配套 GUI 的 `OnlineHost` 宿主 480）会继承陈旧状态：好友 persona 持续被改写、`LobbyInvite` / GamesPlayed 名字补丁 / P2P 翻转门控都停在"已激活"。
+  ⚠️ **判存活不能用"进程还在不在"**：已终止但尚未回收的进程照样答 `OpenProcess` + `GetProcessTimes`（Steam 自己还持有游戏进程句柄），第一版修复（`TickOnlineFixSession` 按创建时间巡检）就是这样从不触发的。必须用在**进程活着时**抓到的句柄 `WaitForSingleObject` 等信号，顺带免疫 pid 复用。
+- **版本外显（给外部软件读）**：`OpenSteamTool.dll` 带 **Windows 版本资源**（`src/cmake/version.rc.in`，版本取 `project(VERSION)`）→ `FileVersionInfo` / 资源管理器属性 / 任何会读 PE 资源的软件都能读到**已安装的那份**。这是 Windows 原生的版本落点，也是唯一的版本外显通道——不要把版本另写到 txt/toml 之类的外部文件里（上游连这个资源都没有：版本只是编进 DLL 的字符串，只有 Debug 日志与诊断弹窗可见，Release 连日志都没有）。
 
 ## 3. 构建与部署
 
@@ -34,6 +37,7 @@
 - **字符集**：`target_compile_options(OpenSteamTool PRIVATE /utf-8)`（显式；Release 缺位曾致中文注释按 CP936 解码破坏语法，2026-09-10 修复）；
 - **依赖**：FetchContent 缓存 `.deps/`（lua/spdlog/protobuf/tomlplusplus/detours 手动预填——本机 TLS 被加速器干扰，schannel 全线不可用；git 需 `http.sslBackend=openssl` + 合并根证书 CA bundle）；
 - 部署：把三个 DLL 复制到 Steam 根目录（覆盖前先备份原文件，回滚即拷回）；日志级别由 `opensteamtool.toml` 的 `[log] level` 控制，未设置时走内核默认；
+- **版本号两处手工同步**：仓库根 `VERSION` 文件（给人/外部工具看的标记，**不参与构建**）与 `src/CMakeLists.txt` 的 `project(OpenSteamTool VERSION x.y.z)`（**唯一来源**）。configure 时按 `PROJECT_VERSION` 生成两份：`build/generated/OpenSteamToolBuildInfo.h`（`OPENSTEAMTOOL_VERSION`，供日志与诊断弹窗）与 `build/generated/version.rc`（DLL 的 Windows 版本资源，供外部读取，见 §2）。改完直接重配即可，**不需要清 CMake 缓存**（历史坑：早期 `OPENSTEAMTOOL_VERSION` 是 CACHE 变量，1.1.0 的 DLL 里烙着 1.0.0，见 `docs/changelog/UPDATE-NOTES-1.1.1.md`）。
 - 验证清单：① 重启 Steam 正常加载、入库/游玩无回归；② 功能点按修复记录逐项。
 
 ## 4. 已知问题（env-less 启动器游戏）

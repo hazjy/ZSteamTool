@@ -19,7 +19,7 @@ namespace {
     // Assumes one game at a time.  Set by SpawnProcess VEH when -onlinefix
     // is detected; cleared when a non-onlinefix game launches, or when the
     // session's game process exits (see TrackOnlineFixGameProcess /
-    // TickOnlineFixSession).
+    // StartOnlineFixGameWatcher).
     AppId_t   g_OnlineFixRealAppId;
     // Session identity for the -onlinefix launch (Spacewar by default).
     // Overridable with "-onlinefix=<appid>" / "-onlinefix <appid>" on the
