@@ -30,6 +30,9 @@ bool InitializeSteamComponents()
     // while [lua] paths in opensteamtool.toml is empty — the GUI writes that entry
     // whenever the user picks a different directory, so exactly one directory is
     // scanned and lua files can never be loaded twice from two locations.
+    // Do NOT change this back to config\stplug-in: that kernel/GUI default mismatch
+    // made a fresh install (no toml yet) load none of the user's lua files, so nothing
+    // showed up in game ("installed but no effect").
     sprintf_s(LuaDir,          kRuntimePathCapacity, "%s\\config\\lua",        SteamInstallPath);
     sprintf_s(ConfigPath,      kRuntimePathCapacity, "%s\\opensteamtool.toml", SteamInstallPath);
     
