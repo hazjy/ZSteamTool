@@ -16,10 +16,10 @@
 | 提交 | 内容 | 本项目处置 |
 |---|---|---|
 | `e55c90b` | Denuvo 结构检测、env-less 追踪、按需 eticket 铸造 | 结构检测与 env-less 追踪**已并入**；eticket 在线铸造**未启用**（无后端）；该提交同时移除了上游 `GetSteamID` 的授权窗口门 —— 这一处**在 v1.1.0 做了纠正**（见第 3 节） |
-| `7936adc`（上游 PR#146） | multi-inject（`[[inject]]` 数组 + 条件匹配）、P2P AppID 翻转 | **未移植**（当前为标量 `[inject]` 配置，无 P2P 翻转） |
-| PR#148 | env-less 启动器游戏的追踪 | 最小集已移植（`135a110`） |
+| `7936adc`（上游 PR#146） | multi-inject（`[[inject]]` 数组 + 条件匹配）、P2P AppID 翻转 | **已并入**（`07957f1` 整树照搬：`[[inject]]` 数组 + `when_cmdline`/`when_appids`/`all_games` 条件匹配、多 DLL 共存，P2P 翻转探测在 `Hooks_IPC.cpp` + `Hooks_Misc` 状态机） |
+| PR#148 | env-less 启动器游戏的追踪 | 最小集已移植（`135a110`），完整版随 `07957f1` 并入 |
 | `f7b7caf` | Denuvo activation redeem uri | 未采用 |
-| `c7b435f` | `-realappid` | 未移植（本项目当前无 P2P 翻转，行为上等价于恒 `-realappid`） |
+| `c7b435f` | `-realappid` | **已并入**（`g_SuppressAppIdFlip`，随 P2P 翻转捆绑，`Hooks_Misc.cpp` + `Hooks_IPC_ISteamUtils.cpp`） |
 
 ## 2. 已移植并生效的改动
 
