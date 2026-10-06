@@ -27,9 +27,12 @@
   - ① 858 `OwnershipTicket` handler **Forge 兜底**（无凭据库票/无后端时 off-by-four 伪造票应答，
     修复"更新所有权票 AccessDenied"）；
   - ② `kMaxWaitSeconds` 12→30（内置源慢响应不再超时）；
-  - ③ `<Steam>/config/lua/manifest.lua` 采用**短路版** `fetch_manifest_code(gid) return "0"`——
-    L1（lua 层）恒失败 → L2（内置 provider）永不执行 → CM 原始应答透传，第三方码注入彻底清零
-    （原实现存档 `manifest.lua.bak`）。
+  - ③ `<Steam>/config/lua/manifest.lua`：**2026-10-06 起由 OSTGUI 设置页「请求码源」生成**
+    （`ManifestLuaService`）——至少启用一个源时是**级联版**（`fetch_manifest_code_ex` /
+    `fetch_manifest_code` 双钩子，按勾选顺序逐源取码，20 秒预算；需要 `depot_id` 的源只在 `_ex`
+    那一路生效）；**全部关闭时仍是短路版** `fetch_manifest_code(gid) return "0"`——
+    L1（lua 层）恒"成功" → L2（内置 provider）永不执行 → CM 原始应答透传，第三方码注入清零。
+    历史手写的那份短路版会被备份成 `manifest.lua.ostgui-bak`（GUI 不覆盖非自己生成的文件，需用户点「接管」）。
 - **请求码机制的当前结论（含 9/9 修复的实质 = CDN 补"清单归属"校验）见 `doc/EVENTS/` 02 主题档案 §一，
   流程与"9/9 后为何失效"见 §二/§三；机制时间线 §四、侦查经过 §五、被推翻的说法 §六**。
 
