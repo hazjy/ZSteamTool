@@ -8,6 +8,7 @@
 #include "Enums.h"
 
 
+#include <cstddef>
 #include <string>
 #include <format>
 #include <ostream>
@@ -209,12 +210,25 @@ using KeyValuesSystemSteam_t = IKeyValuesSystem* (*)();
 struct CNetPacket
 {
 	HCONNECTION m_hConnection;
-	uint8* m_pubData;
-	uint32 m_cubData;
+	// Steam 客户端在 m_hConnection 之后插入了两个「每包版本戳」，把 m_pubData / m_cubData
+	// 各推后 8 字节。BST `0b776c5c`（2026-09-19）记录该改动先在 Beta 出现
+	// （steamclient64 d2d085e7+）；2026-10-14 稳定版落地，本工具因仍按旧布局读
+	// m_pubData 而拿到 0xFFFFFFFF，解引用后 Steam 启动 5 秒即崩。
+	// 两个字段由客户端构造函数写入，本工具不使用，只为对齐偏移。
+	uint32 m_unVersionStamp1;
+	uint32 m_unVersionStamp2;
+	uint8* m_pubData;        // 现在位于 +0x10（旧布局是 +0x08）
+	uint32 m_cubData;        // 现在位于 +0x18（旧布局是 +0x10）
 	int32 m_cRef;
 	uint8* m_pubNetworkBuffer;
 	CNetPacket* m_pNext;
 };
+
+// 客户端内部布局不能靠"猜"：2026-10-14 的事故就是布局漂移（旧布局在 +0x08 读到
+// 0xFFFFFFFF 当指针解引用，Steam 启动 5 秒即崩）。再漂移时必须让编译直接失败，
+// 而不是留到运行时野读（甚至野写）。
+static_assert(offsetof(CNetPacket, m_pubData) == 0x10 && offsetof(CNetPacket, m_cubData) == 0x18,
+              "CNetPacket 布局与当前假设不一致：先核对新版 steamclient64 的 CNetPacket，再改这里的字段序列");
 
 struct MsgHdr
 {

@@ -9,6 +9,7 @@
 #include "Utils/Support/FnvHash.h"
 #include "Utils/CloudRedirect/CloudRedirectHost.h"
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -59,11 +60,34 @@ namespace {
 
 
     // ── Packet layout ──────────────────────────────────────────
+
+    // 数据指针来自 Steam（发送侧是调用参数；接收侧来自 CNetPacket 的字段，而该结构体的
+    // 布局会随客户端版本变化），所以这里的门槛必须是「可读」而不只是「非空」：
+    // 2026-10-14 稳定版把 CNetPacket.m_pubData 推到 +0x10，旧布局在 +0x08 读到的
+    // 0xFFFFFFFF 一路当指针解引用，Steam 启动 5 秒即崩（原崩溃点见下方 UnpackRaw）。
+    inline bool PlausiblePtr(const void* p)
+    {
+        const uintptr_t a = reinterpret_cast<uintptr_t>(p);
+        return a >= 0x10000 && a < 0x0000800000000000ULL;
+    }
+
     inline bool UnpackRaw(const uint8* data, uint32 size,
                           EMsg& eMsg, const uint8*& pHdr, uint32& cbHdr,
-                          const uint8*& pBody, uint32& cbBody)
+                          const uint8*& pBody, uint32& cbBody,
+                          const char* origin)
     {
-        if (!data || size < sizeof(MsgHdr)) {
+        if (data && !PlausiblePtr(data)) {
+            // 一次性告警：同类事故以后以「忽略这一帧 + 一行日志」收场，而不是把 Steam 带走
+            static bool warned = false;
+            if (!warned) {
+                warned = true;
+                LOG_WARN("UnpackRaw: 非法数据指针 0x{:X} size={} origin={} —— 已忽略该帧"
+                         "（CNetPacket 或钩子参数布局可能又变了）",
+                         static_cast<uint64>(reinterpret_cast<uintptr_t>(data)), size,
+                         origin ? origin : "?");
+            }
+        }
+        if (!data || !PlausiblePtr(data) || size < sizeof(MsgHdr)) {
         fail:
             eMsg = static_cast<EMsg>(0);
             cbHdr = 0;
@@ -1522,7 +1546,7 @@ namespace {
         // Legacy CD-key request (EMsg 730) is a non-proto struct message that
         // UnpackRaw skips. Intercept it here: if we answer it locally, suppress
         // the real send (the 785 response is delivered from the RecvPkt hook).
-        if (cubData >= sizeof(ExtendedMsgHdr)) {
+        if (pubData && PlausiblePtr(pubData) && cubData >= sizeof(ExtendedMsgHdr)) {
             const uint32 rawEMsg = *reinterpret_cast<const uint32*>(pubData);
             if (!(rawEMsg & kMsgHdrProtoFlag) &&
                 static_cast<EMsg>(rawEMsg) == k_EMsgClientGetLegacyGameKey &&
@@ -1535,7 +1559,7 @@ namespace {
         const uint8 *pHdr, *pBody;
         uint32 cbHdr, cbBody;
         bool result;
-        if (UnpackRaw(pubData, cubData, eMsg, pHdr, cbHdr, pBody, cbBody)) {
+        if (UnpackRaw(pubData, cubData, eMsg, pHdr, cbHdr, pBody, cbBody, "send")) {
             SendJob(eMsg, pBody, cbBody, pHdr, cbHdr);
 
             if (g_SuppressSend) {
@@ -1563,6 +1587,9 @@ namespace {
 
     HOOK_FUNC(RecvPkt, void*, void* pThis, CNetPacket* pPacket)
     {
+        if (!pPacket)
+            return oRecvPkt(pThis, pPacket);
+
         Hooks_NetPacket_RichPresence::TryInject(
             pThis, pPacket,
             [](void* pT, CNetPacket* pP) -> bool { return oRecvPkt(pT, pP) != nullptr; });
@@ -1579,7 +1606,7 @@ namespace {
         const uint8 *pBody, *pHdr;
         uint32 cbBody, cbHdr;
         if (UnpackRaw(pPacket->m_pubData, pPacket->m_cubData,
-                     eMsg, pHdr, cbHdr, pBody, cbBody)) {
+                     eMsg, pHdr, cbHdr, pBody, cbBody, "recv")) {
             g_ResizedInPlace = false;
             RecvJob(eMsg, pBody, cbBody, pHdr, cbHdr);
 
