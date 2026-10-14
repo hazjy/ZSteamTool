@@ -25,6 +25,15 @@
   键为函数名 FNV-1a 哈希），**零 `GetProcAddress`**（仅 xinput 代理与 vstdlib/Nt 符号解析例外）
   ⇒ 客户端更新后的适配主路径是**更新远程 TOML 元数据**，未必需要重编译；`Hooks_NetPacket`
   （消息层按 job 名）较稳，`Hooks_Misc`/`Hooks_CallBack`（导出函数 Detours）最脆。
+- **包层有两个不可信来源，别只判非空**（2026-10-14 自崩事故的教训）：
+  - **数据指针**：发送侧来自 `BBuildAndAsyncSendFrame` 的调用参数、接收侧来自 `CNetPacket.m_pubData`，
+    都必须判**「可读」**而不只是判空（`PlausiblePtr`：`0x10000 ≤ p < 0x800000000000`）。客户端会给出
+    **非空但不可读**的哨兵值（实测 `0xFFFFFFFF` = 版本戳初值 `-1`），解引用即把 Steam 带走；
+    门槛只该收紧到"不解析这帧"，不要改变"解析不了就原样透传"的既有语义。
+  - **`CNetPacket` 的布局随客户端版本漂移**：新客户端在 `m_hConnection` 之后插入了两个 4 字节版本戳
+    （`m_pubData` +0x08→**+0x10**、`m_cubData` +0x10→**+0x18**）。`src/Steam/Structs.h` 用
+    `static_assert` 锁死这两个偏移 —— **布局再变要让编译先失败**，别留到运行时才发现。
+    根治方向是 BST `1d15f39e` 的不透明结构 + 运行时探测（`NetPkt::Data()/Size()`），本项目尚未移植。
 - **应对纪律（不变）**：
   - ① 大更新落地前为 `d:\steam\` 部署件 + src 打备份；
   - ② 上游 OpenSteamTool/BST 出适配 commit 再增量评估（FETCH + diff）；

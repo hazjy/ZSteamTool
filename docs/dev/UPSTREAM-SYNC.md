@@ -20,6 +20,8 @@
 | PR#148 | env-less 启动器游戏的追踪 | 最小集已移植（`135a110`），完整版随 `07957f1` 并入 |
 | `f7b7caf` | Denuvo activation redeem uri | 未采用 |
 | `c7b435f` | `-realappid` | **已并入**（`g_SuppressAppIdFlip`，随 P2P 翻转捆绑，`Hooks_Misc.cpp` + `Hooks_IPC_ISteamUtils.cpp`） |
+| `0b776c5c`（2026-09-19） | `CNetPacket` 布局 +8（两个版本戳）；"Prevent empty depot writes" | **`CNetPacket` 偏移已并入**（2026-10-14 修掉"Steam 启动 5 秒自崩"，见 `doc/EVENTS/03`）；depot 写入与同步预取那部分未采用 |
+| `1d15f39e`（2026-09-20） | 把 `CNetPacket` 改为**不透明结构 + 运行时布局探测**（新增 `Steam/NetPacket.h` 的 `NetPkt::Data()/Size()`） | **未移植**（列为待办；本地过渡方案是在 `Steam/Structs.h` 用 `static_assert` 锁死 +0x10/+0x18，布局再变时编译先失败） |
 
 ## 2. 已移植并生效的改动
 
@@ -56,3 +58,5 @@
 ## 6. Steam 客户端大更新
 
 Hook 通过函数签名 / RVA 定位（见上游文档的 "Steam version compatibility"）。客户端大更新后签名可能失效，此时需要等上游或本项目更新映射表；映射表由运行时从 GitHub 拉取并本地缓存，可用 `[remote] url_template` 指向自建镜像。
+
+> **2026-10-14 的实况修正**：这次更新里**签名 / 映射表照常命中**（新 hash 的表当天由镜像取到，逐条核对 26/26 通过），真正断掉的是**数据层**——`CNetPacket` 布局漂移导致内核自崩（详见 `doc/EVENTS/03-Steam大更新与适配.md`）。所以"大更新 = 要更新映射表"不是唯一形态，排查顺序应当是：**① 表有没有命中 → ② 命中了就查结构体布局 / 调用约定 / 钩子参数**，别一上来就怀疑签名。
