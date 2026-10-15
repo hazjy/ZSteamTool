@@ -30,6 +30,11 @@ namespace Hooks_Misc {
     // True once P2P started — GetAppID reports 480; before, the real appid.
     bool ShouldReportOnlineFixAppId();
 
+    // True when this launch asked to keep the real appid for the game's own view
+    // (-realappid): the GetAppID flip is off, so appid-carrying outbound requests
+    // should use the real appid as well.
+    bool IsAppIdFlipSuppressed();
+
     // Grow a CUtlBuffer to at least 'newCapacity' bytes and set m_Put = newCapacity.
     // Uses CUtlBuffer::EnsureCapacity from steamclient, resolved on first call.
     bool EnsureBufferCapacity(CUtlBuffer* pWrite, uint32 newCapacity,bool updatePut = false);

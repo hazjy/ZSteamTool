@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <format>
 #include <string>
 #include <future>
 #include <mutex>
@@ -155,6 +156,10 @@ namespace {
     constexpr uint32 HASH_JOB_NotifyRunningApps = Fnv1aHash("FamilyGroupsClient.NotifyRunningApps#1");
     constexpr uint32 HASH_JOB_GetUserStats = Fnv1aHash("Player.GetUserStats#1");
     constexpr uint32 HASH_JOB_GetManifestRequestCode = Fnv1aHash("ContentServerDirectory.GetManifestRequestCode#1");
+    // Master-server查询族（服务器浏览器）：body 结构不在我们的 IDL 里，见 HandleSend_GameServersJob。
+    constexpr uint32 HASH_JOB_GameServersMasterQuery = Fnv1aHash("GameServers.MasterServerQuery#1");
+    constexpr uint32 HASH_JOB_GameServersRepository  = Fnv1aHash("GameServers.Repository#1");
+    constexpr uint32 HASH_JOB_GameServersFriends     = Fnv1aHash("GameServers.FriendsQuery#1");
 
 } // anonymous namespace
 
@@ -1376,6 +1381,65 @@ namespace Hooks_NetPacket_LegacyKey {
 // ════════════════════════════════════════════════════════════════
 namespace {
 
+    // ── GameServers.*（服务器浏览器）：观测 + 可选 appid 改写 ──────────────────
+    //
+    // -onlinefix 下 Steam 侧身份是会话 appid（480），所以游戏的 master server 查询
+    // 问的是 **Spacewar 的服务器列表** —— 即所有搭 480 便车的游戏共享的那个世界，
+    // 而不是本游戏自己的服务器。列表里的服务器会自报它真正服务的 appid，于是
+    // 连一台属于别的游戏的服务器时，本客户端的 appid 校验就失败（「服务器指定的
+    // app id 无效」）；而在 480 世界建房依旧成功 —— 2026-10-16 机械狂欢（4108000）
+    // 的现场正是如此。
+    //
+    // #1 服务方法的 payload 没有 IDL 描述，所以这里**不做任何猜测**：记录 body
+    // （hex 头 + 两个 appid 各自出现的偏移），且只有在启动项要求"游戏侧保持真
+    // appid"（-realappid）时才把会话 appid 改写成真 appid。等真实 body 到手后，
+    // 这段扫描可以换成按日志偏移的精确改写。
+    bool HandleSend_GameServersJob(const char* jobName,
+                                   const uint8* pBody, uint32 cbBody,
+                                   bool allowRewrite)
+    {
+        if (!Hooks_Misc::IsOnlineFixActive() || !pBody || cbBody < sizeof(uint32))
+            return false;
+
+        const AppId_t session = Hooks_Misc::SessionAppId();
+        const AppId_t real    = Hooks_Misc::ResolveAppId();
+
+        const uint32 scan = cbBody < 256 ? cbBody : 256;
+        std::string hits;
+        int sessionAt = -1;
+        for (uint32 i = 0; i + sizeof(uint32) <= scan; ++i) {
+            uint32 v = 0;
+            std::memcpy(&v, pBody + i, sizeof(uint32));
+            if (v == session) {
+                if (sessionAt < 0) sessionAt = static_cast<int>(i);
+                hits += std::format(" session@{}", i);
+            } else if (real != 0 && v == real) {
+                hits += std::format(" real@{}", i);
+            }
+        }
+
+        std::string head;
+        const uint32 headLen = scan < 32 ? scan : 32;
+        for (uint32 i = 0; i < headLen; ++i)
+            head += std::format("{:02X} ", pBody[i]);
+
+        LOG_NETPACKET_INFO("{}: cbBody={} session={} real={} appid 命中:{}",
+                           jobName, cbBody, session, real, hits.empty() ? " 无" : hits);
+        LOG_NETPACKET_DEBUG("{}: head[{}] {}", jobName, headLen, head);
+
+        if (!allowRewrite || sessionAt < 0) return false;
+        // 只在 -realappid 的混合模式下改：那时游戏侧本就该看到真 appid。
+        if (!Hooks_Misc::IsAppIdFlipSuppressed()) return false;
+        if (real == 0 || real == session || cbBody > sizeof(g_SendNewBody)) return false;
+
+        std::memcpy(g_SendNewBody, pBody, cbBody);
+        std::memcpy(g_SendNewBody + sessionAt, &real, sizeof(uint32));
+        g_cbSendNewBody = cbBody;
+        LOG_NETPACKET_INFO("{}: 出站 appid 改写 {} -> {}（偏移 +{}，-realappid）",
+                           jobName, session, real, sessionAt);
+        return true;
+    }
+
     bool SendServiceJob(const char* targetJobName,
                         const uint8* pBody, uint32 cbBody,
                         const uint8* pHdr, uint32 cbHdr)
@@ -1403,6 +1467,15 @@ namespace {
 
         case HASH_JOB_GetManifestRequestCode:
             return Hooks_NetPacket_Manifest::HandleSend(pBody, cbBody, pHdr, cbHdr);
+
+        // 服务器浏览器：先观测命中情况；-realappid 时才把公开查询的 appid 改成真值
+        // （MasterServerQuery 决定"列出哪个游戏的服务器"，是本次问题的关键一条）。
+        case HASH_JOB_GameServersMasterQuery:
+            return HandleSend_GameServersJob("GameServers.MasterServerQuery#1", pBody, cbBody, true);
+        case HASH_JOB_GameServersRepository:
+            return HandleSend_GameServersJob("GameServers.Repository#1", pBody, cbBody, true);
+        case HASH_JOB_GameServersFriends:
+            return HandleSend_GameServersJob("GameServers.FriendsQuery#1", pBody, cbBody, false);
 
         // ---- add new 151 service methods here ----
         }

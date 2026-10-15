@@ -289,6 +289,10 @@ namespace Hooks_Misc {
         return g_OnlineFixRealAppId != 0 && g_NetworkingSocketsActive;
     }
 
+    bool IsAppIdFlipSuppressed() {
+        return g_SuppressAppIdFlip;
+    }
+
     bool EnsureBufferCapacity(CUtlBuffer* pWrite, uint32 newCapacity,bool updatePut)
     {
         if (oCUtlBufferEnsureCapacity) {
