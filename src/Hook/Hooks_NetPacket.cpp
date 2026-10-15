@@ -160,6 +160,7 @@ namespace {
     constexpr uint32 HASH_JOB_GameServersMasterQuery = Fnv1aHash("GameServers.MasterServerQuery#1");
     constexpr uint32 HASH_JOB_GameServersRepository  = Fnv1aHash("GameServers.Repository#1");
     constexpr uint32 HASH_JOB_GameServersFriends     = Fnv1aHash("GameServers.FriendsQuery#1");
+    constexpr uint32 HASH_JOB_GameServersPingReply   = Fnv1aHash("GameServers.ReportServerPingReply#1");
 
 } // anonymous namespace
 
@@ -1381,62 +1382,139 @@ namespace Hooks_NetPacket_LegacyKey {
 // ════════════════════════════════════════════════════════════════
 namespace {
 
+    // ── 极简 protobuf 手术（不需要 schema）────────────────────────────────
+    // 只做一件事：把「字段号 1、值为 from」的 varint 改成 to。结构未知，所以
+    // 严格按 wire type 走；任何一步对不上就整体放弃（返回 false，调用方原样放行）。
+    // 注意：varint 长度会变（480 是 2 字节，4108000 是 4 字节），所以必须重建
+    // body 并同步 length-delimited 字段的长度前缀 —— 不能原地改。
+    bool PbReadVarint(const uint8* p, uint32 n, uint32& pos, uint64& out) {
+        uint64 v = 0;
+        uint32 shift = 0;
+        while (pos < n && shift < 64) {
+            const uint8 b = p[pos++];
+            v |= static_cast<uint64>(b & 0x7F) << shift;
+            if ((b & 0x80) == 0) { out = v; return true; }
+            shift += 7;
+        }
+        return false;
+    }
+
+    void PbWriteVarint(std::string& out, uint64 v) {
+        while (v >= 0x80) {
+            out.push_back(static_cast<char>((v & 0x7F) | 0x80));
+            v >>= 7;
+        }
+        out.push_back(static_cast<char>(v));
+    }
+
+    bool PbRewriteAppId(const uint8* p, uint32 n, uint64 from, uint64 to,
+                        uint32 depth, std::string& out) {
+        uint32 pos = 0;
+        while (pos < n) {
+            uint64 tag = 0;
+            if (!PbReadVarint(p, n, pos, tag)) return false;
+            const uint32 field = static_cast<uint32>(tag >> 3);
+            const uint32 wire  = static_cast<uint32>(tag & 0x7);
+
+            if (wire == 0) {
+                uint64 v = 0;
+                if (!PbReadVarint(p, n, pos, v)) return false;
+                PbWriteVarint(out, tag);
+                PbWriteVarint(out, (field == 1 && depth <= 1 && v == from) ? to : v);
+                continue;
+            }
+            if (wire == 2) {
+                uint64 len = 0;
+                if (!PbReadVarint(p, n, pos, len)) return false;
+                if (pos + len > n) return false;
+                std::string sub;
+                // 只对字段 2 试一次"当成嵌套消息再走一遍"；走不通就原样拷贝
+                // （字符串字段的 payload 往往不是合法 protobuf，自然会回退）。
+                if (depth <= 1 && field == 2) {
+                    std::string nested;
+                    if (PbRewriteAppId(p + pos, static_cast<uint32>(len), from, to, depth + 1, nested))
+                        sub.swap(nested);
+                }
+                if (sub.empty())
+                    sub.assign(reinterpret_cast<const char*>(p + pos), static_cast<size_t>(len));
+                PbWriteVarint(out, tag);
+                PbWriteVarint(out, sub.size());
+                out += sub;
+                pos += static_cast<uint32>(len);
+                continue;
+            }
+            if (wire == 5) {
+                if (pos + 4 > n) return false;
+                PbWriteVarint(out, tag);
+                out.append(reinterpret_cast<const char*>(p + pos), 4);
+                pos += 4;
+                continue;
+            }
+            if (wire == 1) {
+                if (pos + 8 > n) return false;
+                PbWriteVarint(out, tag);
+                out.append(reinterpret_cast<const char*>(p + pos), 8);
+                pos += 8;
+                continue;
+            }
+            return false;   // 3/4（组起止）或非法 → 放弃
+        }
+        return true;
+    }
+
     // ── GameServers.*（服务器浏览器）：观测 + 可选 appid 改写 ──────────────────
     //
     // -onlinefix 下 Steam 侧身份是会话 appid（480），所以游戏的 master server 查询
     // 问的是 **Spacewar 的服务器列表** —— 即所有搭 480 便车的游戏共享的那个世界，
-    // 而不是本游戏自己的服务器。列表里的服务器会自报它真正服务的 appid，于是
-    // 连一台属于别的游戏的服务器时，本客户端的 appid 校验就失败（「服务器指定的
-    // app id 无效」）；而在 480 世界建房依旧成功 —— 2026-10-16 机械狂欢（4108000）
-    // 的现场正是如此。
+    // 而不是本游戏自己的服务器。2026-10-16 机械狂欢（4108000）实测：列表里出现过
+    // "My PZ Server"（Project Zomboid，端口 16261）与 "BUMMER RUST"/"Anykey"
+    // （Rust，端口 28015）—— 各家的 480 服混在一个池子里；这些服自报的 appid 与
+    // 本游戏对不上，客户端连它们就报「服务器指定的 app id 无效」。而 480 世界建房
+    // 依旧成功。查询 body 实测（00:41:54）：`08 E0 03 12 0B 08 E0 03 …`
+    // —— 字段 1 varint = 480，字段 2 是嵌套消息（里面字段 1 又是 480），字段 4 是
+    // A2S 风格过滤串。所以 appid 是 **varint** 而不是小端 uint32（早先按 uint32 扫
+    // 必然扫不到）。
     //
-    // #1 服务方法的 payload 没有 IDL 描述，所以这里**不做任何猜测**：记录 body
-    // （hex 头 + 两个 appid 各自出现的偏移），且只有在启动项要求"游戏侧保持真
-    // appid"（-realappid）时才把会话 appid 改写成真 appid。等真实 body 到手后，
-    // 这段扫描可以换成按日志偏移的精确改写。
+    // 本函数先记录完整 body（hex），再在「启动项要求游戏侧保持真 appid」时用上面的
+    // 极简手术把字段 1 的 appid 换成真 appid，让查询落到本游戏自己的服务器上。
     bool HandleSend_GameServersJob(const char* jobName,
                                    const uint8* pBody, uint32 cbBody,
                                    bool allowRewrite)
     {
-        if (!Hooks_Misc::IsOnlineFixActive() || !pBody || cbBody < sizeof(uint32))
+        if (!Hooks_Misc::IsOnlineFixActive() || !pBody || cbBody < 2)
             return false;
 
         const AppId_t session = Hooks_Misc::SessionAppId();
         const AppId_t real    = Hooks_Misc::ResolveAppId();
 
-        const uint32 scan = cbBody < 256 ? cbBody : 256;
-        std::string hits;
-        int sessionAt = -1;
-        for (uint32 i = 0; i + sizeof(uint32) <= scan; ++i) {
-            uint32 v = 0;
-            std::memcpy(&v, pBody + i, sizeof(uint32));
-            if (v == session) {
-                if (sessionAt < 0) sessionAt = static_cast<int>(i);
-                hits += std::format(" session@{}", i);
-            } else if (real != 0 && v == real) {
-                hits += std::format(" real@{}", i);
-            }
-        }
+        const uint32 dump = cbBody < 256 ? cbBody : 256;
+        std::string hex;
+        for (uint32 i = 0; i < dump; ++i)
+            hex += std::format("{:02X} ", pBody[i]);
 
-        std::string head;
-        const uint32 headLen = scan < 32 ? scan : 32;
-        for (uint32 i = 0; i < headLen; ++i)
-            head += std::format("{:02X} ", pBody[i]);
+        LOG_NETPACKET_INFO("{}: cbBody={} session={} real={}", jobName, cbBody, session, real);
+        LOG_NETPACKET_DEBUG("{}: body[{}] {}", jobName, dump, hex);
 
-        LOG_NETPACKET_INFO("{}: cbBody={} session={} real={} appid 命中:{}",
-                           jobName, cbBody, session, real, hits.empty() ? " 无" : hits);
-        LOG_NETPACKET_DEBUG("{}: head[{}] {}", jobName, headLen, head);
-
-        if (!allowRewrite || sessionAt < 0) return false;
-        // 只在 -realappid 的混合模式下改：那时游戏侧本就该看到真 appid。
+        if (!allowRewrite) return false;
+        // 只在 -realappid 的混合模式（游戏侧本就该看到真 appid）下改写。
         if (!Hooks_Misc::IsAppIdFlipSuppressed()) return false;
-        if (real == 0 || real == session || cbBody > sizeof(g_SendNewBody)) return false;
+        if (real == 0 || real == session) return false;
 
-        std::memcpy(g_SendNewBody, pBody, cbBody);
-        std::memcpy(g_SendNewBody + sessionAt, &real, sizeof(uint32));
-        g_cbSendNewBody = cbBody;
-        LOG_NETPACKET_INFO("{}: 出站 appid 改写 {} -> {}（偏移 +{}，-realappid）",
-                           jobName, session, real, sessionAt);
+        std::string out;
+        if (!PbRewriteAppId(pBody, cbBody, session, real, 0, out)) {
+            LOG_NETPACKET_WARN("{}: body 不是可解析的 protobuf，未改", jobName);
+            return false;
+        }
+        if (out.size() == cbBody && std::memcmp(out.data(), pBody, cbBody) == 0) {
+            LOG_NETPACKET_INFO("{}: 字段 1 未出现会话 appid {}，未改", jobName, session);
+            return false;
+        }
+        if (out.size() > sizeof(g_SendNewBody)) return false;
+
+        std::memcpy(g_SendNewBody, out.data(), out.size());
+        g_cbSendNewBody = static_cast<uint32>(out.size());
+        LOG_NETPACKET_INFO("{}: 出站 body 改写 appid {} -> {}（{} -> {} 字节）",
+                           jobName, session, real, cbBody, out.size());
         return true;
     }
 
@@ -1476,6 +1554,9 @@ namespace {
             return HandleSend_GameServersJob("GameServers.Repository#1", pBody, cbBody, true);
         case HASH_JOB_GameServersFriends:
             return HandleSend_GameServersJob("GameServers.FriendsQuery#1", pBody, cbBody, false);
+        // 建房时向 Valve 登记本机服务（自报 appid），先只观测，确认格式后再决定是否改。
+        case HASH_JOB_GameServersPingReply:
+            return HandleSend_GameServersJob("GameServers.ReportServerPingReply#1", pBody, cbBody, false);
 
         // ---- add new 151 service methods here ----
         }
