@@ -1522,6 +1522,76 @@ namespace {
                            DumpProtoFields(pBody, cbBody, 12));
     }
 
+    // ── MMS 大厅族：把请求里的"真实 appid"改写成会话 appid ──────────────────
+    //
+    // 实测（2026-10-16，机械狂欢 4108000）：
+    //   send 6601 k_EMsgClientMMSCreateLobby  fields: #1=4108000 …
+    //   recv 6602 …Response                    fields: #1=4108000  #3=15
+    // `#3=15` = k_EResultAccessDenied —— 未拥有该 appid 就不许建大厅。后果连锁：
+    // 游戏拿到的大厅 ID = 0（「复制房间ID」显示 0）→ SetLobbyData 返回 false →
+    // 「邀请」调用 IPC 层成功但方法返回 false，界面上什么都不弹。
+    //
+    // 关键观察：这个 `#1` **不是游戏填的**——纯 480 模式（无 -realappid）下它仍是
+    // 4108000，说明它由 steamclient 按"该游戏以 4108000 启动"填入；我们的 480 伪装
+    // 只改了游戏侧（env / GetAppID）。所以这里把请求里的 appid 换成会话 appid
+    // （默认 480 / Spacewar，免费可用），响应里的 appid 再换回真实值，让游戏侧视角
+    // 保持不变。字段号 1 的 varint 已由 DumpMms 实测确认，属精确改写而非盲扫。
+    bool IsMmsAppIdJob(EMsg eMsg) {
+        switch (eMsg) {
+        case k_EMsgClientMMSCreateLobby:   // 6601
+        case k_EMsgClientMMSJoinLobby:     // 6603
+        case k_EMsgClientMMSGetLobbyList:  // 6607
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    bool RewriteMmsAppId(EMsg eMsg, const uint8* pBody, uint32 cbBody,
+                         AppId_t from, AppId_t to) {
+        if (!Hooks_Misc::IsOnlineFixActive()) return false;
+        if (from == 0 || to == 0 || from == to) return false;
+        if (!IsMmsAppIdJob(eMsg)) return false;
+
+        std::string out;
+        if (!PbRewriteAppId(pBody, cbBody, from, to, 0, out)) return false;
+        if (out.size() == cbBody && std::memcmp(out.data(), pBody, cbBody) == 0) return false;
+        if (out.size() > sizeof(g_SendNewBody)) return false;
+
+        std::memcpy(g_SendNewBody, out.data(), out.size());
+        g_cbSendNewBody = static_cast<uint32>(out.size());
+        LOG_NETPACKET_INFO("MMS appid rewrite: {}({}) {} -> {}（{} -> {} 字节）",
+                           MsgName(eMsg), static_cast<uint32>(eMsg), from, to,
+                           cbBody, out.size());
+        return true;
+    }
+
+    // 响应方向：把 session appid 换回真实 appid（与上面的改写对称）。
+    bool RewriteMmsResponseAppId(EMsg eMsg, const uint8* pBody, uint32 cbBody,
+                                 AppId_t from, AppId_t to) {
+        if (!Hooks_Misc::IsOnlineFixActive()) return false;
+        if (from == 0 || to == 0 || from == to) return false;
+        switch (eMsg) {
+        case k_EMsgClientMMSCreateLobbyResponse:  // 6602
+        case k_EMsgClientMMSJoinLobbyResponse:    // 6604
+            break;
+        default:
+            return false;
+        }
+
+        std::string out;
+        if (!PbRewriteAppId(pBody, cbBody, from, to, 0, out)) return false;
+        if (out.size() == cbBody && std::memcmp(out.data(), pBody, cbBody) == 0) return false;
+        if (out.size() > sizeof(g_NewBody)) return false;
+
+        std::memcpy(g_NewBody, out.data(), out.size());
+        g_cbNewBody = static_cast<uint32>(out.size());
+        LOG_NETPACKET_INFO("MMS appid rewrite(recv): {}({}) {} -> {}（{} -> {} 字节）",
+                           MsgName(eMsg), static_cast<uint32>(eMsg), from, to,
+                           cbBody, out.size());
+        return true;
+    }
+
     // ── GameServers.*（服务器浏览器）：观测 + 可选 appid 改写 ──────────────────
     //
     // -onlinefix 下 Steam 侧身份是会话 appid（480），所以游戏的 master server 查询
@@ -1632,6 +1702,9 @@ namespace {
         LOG_NETPACKET_DEBUG("Send eMsg {}({}) (cbBody={}, cbHdr={})",
                         MsgName(eMsg), static_cast<uint32>(eMsg), cbBody, cbHdr);
         DumpMms("send", eMsg, pBody, cbBody);
+        if (RewriteMmsAppId(eMsg, pBody, cbBody,
+                            Hooks_Misc::ResolveAppId(), Hooks_Misc::SessionAppId()))
+            g_NeedReplaceSend = true;
 
         switch (eMsg) {
 
@@ -1711,6 +1784,9 @@ namespace {
         LOG_NETPACKET_DEBUG("Recv eMsg {}({}) (cbBody={}, cbHdr={})",
                         MsgName(eMsg), static_cast<uint32>(eMsg), cbBody, cbHdr);
         DumpMms("recv", eMsg, pBody, cbBody);
+        if (RewriteMmsResponseAppId(eMsg, pBody, cbBody,
+                                    Hooks_Misc::SessionAppId(), Hooks_Misc::ResolveAppId()))
+            g_NeedReplaceBody = true;
 
         switch (eMsg) {
 
