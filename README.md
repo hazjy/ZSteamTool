@@ -37,11 +37,11 @@ ZSteamTool 是一个注入 Steam 客户端的内核（三个 DLL），用来解�
 | 项目 | 说明 | 基线提交 |
 |---|---|---|
 | [OpenSteamTool](https://github.com/OpenSteam001/OpenSteamTool) | 原始上游，本仓库的代码起点 | `2a08b0b` |
-| [BetterSteamTools](https://github.com/madoiscool/BetterSteamTools) | 活跃 fork，主体改动已对齐并入 | `c7b435f` |
+| [BetterSteamTools](https://github.com/madoiscool/BetterSteamTools) | 同源 fork，主体改动已对齐并入 | `c7b435f` |
 
 - 许可证与版权归属见 [`LICENSE`](LICENSE) 与 [`NOTICE`](NOTICE)；
-- 改了哪些地方、后续如何跟上上游：见 [`docs/dev/UPSTREAM-SYNC.md`](docs/dev/UPSTREAM-SYNC.md)；
-- 完整的技术文档（构建、Lua API、Steam 版本兼容、逐模块日志说明）沿用上游英文文档：[`docs/upstream/README-en.md`](docs/upstream/README-en.md)。
+- 改了哪些地方、后续如何跟上上游：**见本仓库的 git 提交信息**（每个适配 / 移植提交都写明依据）；
+- 上游原始文档与技术说明随退役文档归档（`_archive/`），需要时直接从上游仓库读取。
 
 ## 本发行版相对上游的差异
 
@@ -93,7 +93,7 @@ set TOOLSET=v145 && build.bat      # 指定 MSVC 工具集（生成器为 Visual
 - **请求码**：服务器已对非拥有者收口，能否下载取决于清单是否投喂成功（`depotcache` 与 Lua 取码两条路），不是所有游戏都能下；
 - **`compat` 模式**下游戏用户数据绑定出票账号是**协议层必然**（eticket 内的 SteamID 由 Valve 签名，无法伪造），已有存档需自行迁移；
 - **eticket 在线铸造**后端默认关闭（不随本仓库分发）；
-- **Steam 客户端大更新**期间 Hook 签名可能失效，需要等适配（见 `docs/dev/UPSTREAM-SYNC.md`）；
+- **Steam 客户端大更新**期间 Hook 签名可能失效，需要重新适配（本发行版自担，历史适配记录见 git 提交信息）；
 - Debug 版日志量大、性能略低，日常请用 Release。
 
 ## 免责声明

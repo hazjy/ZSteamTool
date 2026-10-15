@@ -22,9 +22,5 @@ build/
 
 # DLLs (keep only source files)
 !.deps/**/*.dll
-# 本地留存：智能体台账、上游同步台账与客户端适配笔记（不随仓库分发）
-docs/dev/agents-log/
-docs/dev/upstream-log/
-docs/dev/steam-client-notes/
 # 内核部署件备份：含本机 config\lua（个人密钥）与部署 DLL，体积大且含个人信息，绝不入库
 内核备份/
