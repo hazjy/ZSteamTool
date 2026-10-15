@@ -173,6 +173,43 @@ namespace {
                      call.funcHash(), m ? m->argc : 0, body.size(), hex);
     }
 
+    // ── 响应侧画像：好友/大厅两类调用的**结果** ──────────────────────────────
+    //
+    // "点了按钮没反应"通常就是这条调用返回 Failed、或返回体里给了 false/0。请求侧
+    // 只说明"发出去过"，所以这里把响应也记下来：EIPCResult（无响应 / OK / Failed）
+    // + 返回体头 24 字节。只记接口 3（IClientFriends）与 6（IClientMatchmaking）——
+    // 邀请与大厅这条线；每会话预算 400 行，避免刷爆日志。
+    uint32 g_IpcRespBudget = 400;
+
+    void ProfileResponse(void* pServer, HSteamPipe hSteamPipe,
+                         CUtlBuffer* pRead, CUtlBuffer* pWrite, bool callReturned) {
+        if (g_IpcRespBudget == 0 || !Hooks_Misc::IsOnlineFixActive()) return;
+
+        IPCMessages::IPCRequest request{pRead};
+        if (!request.ok() || request.command() != EIPCCommand::InterfaceCall) return;
+        IPCMessages::IPCInterfaceCall call{request.body()};
+        if (!call.ok()) return;
+
+        const uint32 iface = static_cast<uint32>(call.interfaceID());
+        if (iface != 3 && iface != 6) return;   // IClientFriends / IClientMatchmaking
+
+        CPipeClient* pipe = GetPipe(pServer, hSteamPipe);
+        const uint32 pid = pipe ? pipe->m_clientPID : 0;
+
+        IPCMessages::IPCResponse resp{pWrite};
+        const auto body = resp.body();
+        const size_t shown = body.size() < 24 ? body.size() : 24;
+        std::string hex;
+        for (size_t i = 0; i < shown; ++i)
+            hex += std::format("{:02X} ", body[i]);
+
+        LOG_IPC_INFO("IPC resp: pid={} {} hash=0x{:08X} result={} returned={} bodyBytes={} head={}",
+                     pid, EIPCInterfaceName(call.interfaceID()), call.funcHash(),
+                     resp.ok() ? EIPCResultName(resp.result()) : "<无响应>",
+                     callReturned, body.size(), hex);
+        --g_IpcRespBudget;
+    }
+
     // Precise outbound appid rewrite for -onlinefix games.
     //
     // A few calls pass an AppID as their FIRST parameter and must run against the
@@ -222,7 +259,11 @@ namespace {
 
         IPCDispatch dispatch = ResolveDispatch(pServer, hSteamPipe, pRead);
         // If we didn't find a handler for this message, just pass through to the original function.
-        if(!dispatch.enabled()) return oIPCProcessMessage(pServer, hSteamPipe, pRead, pWrite);
+        if(!dispatch.enabled()) {
+            const bool passthrough = oIPCProcessMessage(pServer, hSteamPipe, pRead, pWrite);
+            ProfileResponse(pServer, hSteamPipe, pRead, pWrite, passthrough);
+            return passthrough;
+        }
 
         // If we did find a handler, run the pre-handler
         if (dispatch.handler->pre)
@@ -230,6 +271,7 @@ namespace {
 
         // Then call the original function to let steamclient process the message as normal.
         bool result = oIPCProcessMessage(pServer, hSteamPipe, pRead, pWrite);
+        ProfileResponse(pServer, hSteamPipe, pRead, pWrite, result);
 
         // Ultimately the post-handler can choose to modify the response.
         if (result && dispatch.handler->post)
