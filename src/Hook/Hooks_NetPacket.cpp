@@ -1463,8 +1463,11 @@ namespace {
     }
 
     // ── 极简 protobuf 字段转储（诊断用）──────────────────────────────────────
-    // 把一层字段按「编号=值」打印出来，供没有 IDL 的消息（MMS 大厅那批）使用。
-    std::string DumpProtoFields(const uint8* p, uint32 n, uint32 maxFields) {
+    // 把字段按「编号=值」打印出来，供没有 IDL 的消息（MMS 大厅那批）使用。
+    // 对 length-delimited 字段再**下钻一层**：若其内容本身能解析成 protobuf 就打印
+    // 内层字段（实测 6601 的 #10 有 183 字节，很可能也带着 appid —— 只改顶层字段会
+    // 让请求自相矛盾，这正是"改写后从 AccessDenied 变成 Fail"的可疑原因）。
+    std::string DumpProtoFields(const uint8* p, uint32 n, uint32 maxFields, int depth) {
         std::string out;
         uint32 pos = 0, count = 0;
         while (pos < n && count < maxFields) {
@@ -1485,11 +1488,19 @@ namespace {
                     const uint8 c = p[pos + i];
                     if (c < 0x20 || c > 0x7E) text = false;
                 }
-                if (text)
+                if (text) {
                     out += std::format(" #{}='{}'", field,
                         std::string(reinterpret_cast<const char*>(p + pos), static_cast<size_t>(len)));
-                else
+                } else if (depth < 1 && len > 0) {
+                    const std::string nested =
+                        DumpProtoFields(p + pos, static_cast<uint32>(len), 6, depth + 1);
+                    if (!nested.empty())
+                        out += std::format(" #{}<{}B>{{{}}}", field, len, nested);
+                    else
+                        out += std::format(" #{}<{}B>", field, len);
+                } else {
                     out += std::format(" #{}<{}B>", field, len);
+                }
                 pos += static_cast<uint32>(len);
             } else if (wire == 5) {
                 if (pos + 4 > n) break;
@@ -1519,7 +1530,7 @@ namespace {
         if (seen++ >= 4) return;        // 每个 eMsg 只 dump 前 4 条
         LOG_NETPACKET_INFO("MMS dump {} {}({}) cbBody={} fields:{}",
                            dir, MsgName(eMsg), id, cbBody,
-                           DumpProtoFields(pBody, cbBody, 12));
+                           DumpProtoFields(pBody, cbBody, 12, 0));
     }
 
     // ── MMS 大厅族：把请求里的"真实 appid"改写成会话 appid ──────────────────
