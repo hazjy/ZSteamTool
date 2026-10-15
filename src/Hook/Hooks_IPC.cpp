@@ -8,6 +8,8 @@
 #include "Utils/Support/FnvHash.h"
 #include "Utils/SteamMetadata/IPCLoader.h"
 
+#include <cstring>
+
 namespace {
 
     RESOLVE_FUNC(GetPipeClient, CPipeClient*, void* pEngine, HSteamPipe hSteamPipe);
@@ -118,12 +120,51 @@ namespace {
             Hooks_Misc::NotifyNetworkingSocketsUsed();
     }
 
+    // Precise outbound appid rewrite for -onlinefix games.
+    //
+    // A few calls pass an AppID as their FIRST parameter and must run against the
+    // REAL appid rather than the session appid. IClientRemoteStorage (interface
+    // 13) is the known case: a game launched as 480 would otherwise write its
+    // cloud saves under Spacewar instead of under its own appid.
+    //
+    // Only the known interface plus a verified first argument are touched. The
+    // payload is deliberately NOT scanned for the value: a FileWrite body may
+    // legitimately contain 480 (0x000001E0) as file content, and rewriting that
+    // would corrupt the write.
+    static void RewriteOutboundAppId(CUtlBuffer* pRead) {
+        if (!Hooks_Misc::IsOnlineFixActive()) return;
+
+        IPCMessages::IPCRequest request{pRead};
+        if (!request.ok() || request.command() != EIPCCommand::InterfaceCall) return;
+
+        IPCMessages::IPCInterfaceCall call{request.body()};
+        if (!call.ok()) return;
+        if (call.interfaceID() != EIPCInterface::IClientRemoteStorage) return;
+
+        // Only the session pipe of the -onlinefix-launched game.
+        const AppId_t session = Hooks_Misc::SessionAppId();
+        if (Hooks_Misc::GetAppIDForCurrentPipeWrap() != session) return;
+
+        const AppId_t real = Hooks_Misc::ResolveAppId();
+        if (real == 0 || real == session) return;
+        if (call.body().size() < sizeof(uint32)) return;
+
+        uint32 firstArg = 0;
+        std::memcpy(&firstArg, call.body().data(), sizeof(uint32));
+        if (firstArg != session) return;
+
+        std::memcpy(call.body().data(), &real, sizeof(uint32));
+        LOG_IPC_INFO("OnlineFix: IClientRemoteStorage first arg {} -> {} (real appid)",
+                     firstArg, real);
+    }
+
     HOOK_FUNC(IPCProcessMessage, bool,void* pServer, HSteamPipe hSteamPipe,
               CUtlBuffer* pRead, CUtlBuffer* pWrite)
     {
         // handle handshake messages
         HandleHandshake(pServer, hSteamPipe, pRead);
         DetectNetworkingSockets(pRead);
+        RewriteOutboundAppId(pRead);
 
         IPCDispatch dispatch = ResolveDispatch(pServer, hSteamPipe, pRead);
         // If we didn't find a handler for this message, just pass through to the original function.
