@@ -1462,6 +1462,66 @@ namespace {
         return true;
     }
 
+    // ── 极简 protobuf 字段转储（诊断用）──────────────────────────────────────
+    // 把一层字段按「编号=值」打印出来，供没有 IDL 的消息（MMS 大厅那批）使用。
+    std::string DumpProtoFields(const uint8* p, uint32 n, uint32 maxFields) {
+        std::string out;
+        uint32 pos = 0, count = 0;
+        while (pos < n && count < maxFields) {
+            uint64 tag = 0;
+            if (!PbReadVarint(p, n, pos, tag)) break;
+            const uint32 field = static_cast<uint32>(tag >> 3);
+            const uint32 wire  = static_cast<uint32>(tag & 0x7);
+            if (wire == 0) {
+                uint64 v = 0;
+                if (!PbReadVarint(p, n, pos, v)) break;
+                out += std::format(" #{}={}", field, v);
+            } else if (wire == 2) {
+                uint64 len = 0;
+                if (!PbReadVarint(p, n, pos, len)) break;
+                if (pos + len > n) break;
+                bool text = (len > 0 && len <= 64);
+                for (uint64 i = 0; i < len && text; ++i) {
+                    const uint8 c = p[pos + i];
+                    if (c < 0x20 || c > 0x7E) text = false;
+                }
+                if (text)
+                    out += std::format(" #{}='{}'", field,
+                        std::string(reinterpret_cast<const char*>(p + pos), static_cast<size_t>(len)));
+                else
+                    out += std::format(" #{}<{}B>", field, len);
+                pos += static_cast<uint32>(len);
+            } else if (wire == 5) {
+                if (pos + 4 > n) break;
+                uint32 v = 0; std::memcpy(&v, p + pos, 4);
+                out += std::format(" #{}:u32={}", field, v);
+                pos += 4;
+            } else if (wire == 1) {
+                if (pos + 8 > n) break;
+                uint64 v = 0; std::memcpy(&v, p + pos, 8);
+                out += std::format(" #{}:u64={}", field, v);
+                pos += 8;
+            } else break;
+            ++count;
+        }
+        return out;
+    }
+
+    // MMS（大厅）消息：dump 前若干条，用来确认「这个房间在哪个 appid 世界」以及
+    // 大厅操作的返回码（也没有 IDL，所以走通用字段转储）。
+    std::unordered_map<uint32, int> g_MmsDumpCount;
+
+    void DumpMms(const char* dir, EMsg eMsg, const uint8* pBody, uint32 cbBody) {
+        const uint32 id = static_cast<uint32>(eMsg);
+        if (id < 6600 || id > 6699) return;
+        if (cbBody == 0 || cbBody > 4096) return;
+        int& seen = g_MmsDumpCount[id];
+        if (seen++ >= 4) return;        // 每个 eMsg 只 dump 前 4 条
+        LOG_NETPACKET_INFO("MMS dump {} {}({}) cbBody={} fields:{}",
+                           dir, MsgName(eMsg), id, cbBody,
+                           DumpProtoFields(pBody, cbBody, 12));
+    }
+
     // ── GameServers.*（服务器浏览器）：观测 + 可选 appid 改写 ──────────────────
     //
     // -onlinefix 下 Steam 侧身份是会话 appid（480），所以游戏的 master server 查询
@@ -1571,6 +1631,7 @@ namespace {
 
         LOG_NETPACKET_DEBUG("Send eMsg {}({}) (cbBody={}, cbHdr={})",
                         MsgName(eMsg), static_cast<uint32>(eMsg), cbBody, cbHdr);
+        DumpMms("send", eMsg, pBody, cbBody);
 
         switch (eMsg) {
 
@@ -1649,6 +1710,7 @@ namespace {
         }
         LOG_NETPACKET_DEBUG("Recv eMsg {}({}) (cbBody={}, cbHdr={})",
                         MsgName(eMsg), static_cast<uint32>(eMsg), cbBody, cbHdr);
+        DumpMms("recv", eMsg, pBody, cbBody);
 
         switch (eMsg) {
 
