@@ -124,29 +124,37 @@ namespace {
             Hooks_Misc::NotifyNetworkingSocketsUsed();
     }
 
-    // ── 出站 IPC 调用画像（只针对 -onlinefix 的游戏 pipe）────────────────────
+    // ── 出站 IPC 调用画像 ────────────────────────────────────────────────────
     //
     // 联机路径目前只有 6 个 handler 有覆盖（GetSteamID / 票据 / GetAppID /
     // GetAPICallResult），其余接口在日志里是黑箱 —— 2026-10-16 机械狂欢"邀请按钮
-    // 点了没反应"就没有任何线索可查。这里给每个 (interfaceID, funcHash) 的**首次**
-    // 出现记一行（接口名 + 方法名 + 参数个数 + body 头），之后只累计计数，避免刷爆
-    // 日志。方法名取自 IPCLoader 的元数据（签名表），所以能直接看到
+    // 点了没反应"就没有任何线索可查。这里给每个 (pid, interfaceID, funcHash) 的
+    // **首次**出现记一行（pid + 接口名 + 方法名 + 参数个数 + body 头），之后只计数，
+    // 避免刷爆日志。方法名取自 IPCLoader 的元数据（签名表），所以能直接看到
     // `IClientFriends::InviteUserToGame` 这种可读结果。
-    std::unordered_map<uint64, uint32> g_IpcProfile;   // key = iface<<32 | funcHash
+    //
+    // 刻意**不按 appid 过滤**：早先按 GetAppIDForCurrentPipeWrap() == 会话 appid
+    // 过滤，实测在这个路径下拿不到游戏 pipe 的 appid（调用被全部筛掉、日志空）。
+    // 改为把 pid 打进每条记录，由 pid 自己说明是哪个进程。
+    std::unordered_map<std::string, uint32> g_IpcProfile;
     std::mutex g_IpcProfileMutex;
 
-    void ProfileInterfaceCall(IPCMessages::IPCInterfaceCall& call) {
+    void ProfileIpcCall(void* pServer, HSteamPipe hSteamPipe, CUtlBuffer* pRead) {
         if (!Hooks_Misc::IsOnlineFixActive()) return;
 
-        // 只画像游戏自己的那条 pipe：其 appid 等于会话 appid（Steam UI 的 pipe 不是）。
-        const AppId_t pipeAppId = Hooks_Misc::GetAppIDForCurrentPipeWrap();
-        if (pipeAppId != Hooks_Misc::SessionAppId()) return;
+        IPCMessages::IPCRequest request{pRead};
+        if (!request.ok() || request.command() != EIPCCommand::InterfaceCall) return;
+        IPCMessages::IPCInterfaceCall call{request.body()};
+        if (!call.ok()) return;
 
-        const uint64 key = (static_cast<uint64>(static_cast<uint32>(call.interfaceID())) << 32)
-                         | call.funcHash();
+        CPipeClient* pipe = GetPipe(pServer, hSteamPipe);
+        const uint32 pid = pipe ? pipe->m_clientPID : 0;
+
+        const uint64 key = (static_cast<uint64>(pid) << 32) ^ call.funcHash();
         {
             std::lock_guard<std::mutex> lock(g_IpcProfileMutex);
-            uint32& seen = g_IpcProfile[key];
+            uint32& seen = g_IpcProfile[std::format("{}|{}|{}", pid,
+                                static_cast<uint32>(call.interfaceID()), call.funcHash())];
             if (seen++ > 0) return;       // 记录过 → 只计数
         }
 
@@ -157,22 +165,12 @@ namespace {
         for (size_t i = 0; i < shown; ++i)
             hex += std::format("{:02X} ", body[i]);
 
-        LOG_IPC_INFO("IPC profile: {}({})::{} hash=0x{:08X} argc={} bodyBytes={} head={}",
+        LOG_IPC_INFO("IPC profile: pid={} {}({})::{} hash=0x{:08X} argc={} bodyBytes={} head={}",
+                     pid,
                      EIPCInterfaceName(call.interfaceID()),
                      static_cast<uint32>(call.interfaceID()),
                      m ? m->name.c_str() : "<元数据未收录>",
                      call.funcHash(), m ? m->argc : 0, body.size(), hex);
-    }
-
-    // 解析请求缓冲并按需画像。刻意与 DetectNetworkingSockets 分开：后者在 GetAppID
-    // 翻转生效后会提前返回，而画像需要覆盖整场会话。
-    void ProfileIpcCall(CUtlBuffer* pRead) {
-        if (!Hooks_Misc::IsOnlineFixActive()) return;
-        IPCMessages::IPCRequest request{pRead};
-        if (!request.ok() || request.command() != EIPCCommand::InterfaceCall) return;
-        IPCMessages::IPCInterfaceCall call{request.body()};
-        if (!call.ok()) return;
-        ProfileInterfaceCall(call);
     }
 
     // Precise outbound appid rewrite for -onlinefix games.
@@ -220,7 +218,7 @@ namespace {
         HandleHandshake(pServer, hSteamPipe, pRead);
         DetectNetworkingSockets(pRead);
         RewriteOutboundAppId(pRead);
-        ProfileIpcCall(pRead);
+        ProfileIpcCall(pServer, hSteamPipe, pRead);
 
         IPCDispatch dispatch = ResolveDispatch(pServer, hSteamPipe, pRead);
         // If we didn't find a handler for this message, just pass through to the original function.
