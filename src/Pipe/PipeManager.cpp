@@ -156,10 +156,12 @@ void OnHandshake(CPipeClient* pipe) {
     if (ctx.gameProcess) Hooks_Misc::TrackOnlineFixGameProcess(ctx.process.pid);
 
     // Route A 实验：登记"环境变量会话"（OnlineHost 式启动会给游戏进程设 SteamAppId 等）。
-    // 见 Hooks_Misc::EngageEnvSession / GetAppIDForCurrentPipe 的 hook。
+    // 第 4 个参数是客户端视角里这条 pipe 的真 appid —— 在握手这一刻量，用来把后续的
+    // appid 洗白限定在会话那条 pipe 上（量不到就是 0，退化为宽口径并记日志）。
     if (ctx.gameProcess)
         Hooks_Misc::EngageEnvSession(ctx.process.pid, ctx.process.creationTime,
-                                     snapshot.environment.ResolveAppId());
+                                     snapshot.environment.ResolveAppId(),
+                                     Hooks_Misc::GetAppIDForCurrentPipeWrap());
 
     DenuvoAuth::Apply(ctx);
     Injection::Apply(ctx);

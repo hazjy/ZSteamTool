@@ -26,6 +26,7 @@ namespace {
     // 仅当该 appid 是本机 lua 配过的游戏（`HasDepot`）且与游戏进程环境变量给的会话
     // 身份不同时才生效，把影响面压到最小。
     AppId_t g_EnvSessionAppId = 0;   // 游戏进程环境变量指定的会话身份（OnlineHost 会设成 480）
+    AppId_t g_EnvSessionRealAppId = 0;   // 客户端视角里"会话那条 pipe"的真 appid（0 = 没量到 → 宽口径）
     PID_t   g_EnvSessionPid   = 0;   // 该会话所属的游戏进程（退出即清，见看门狗）
     uint64  g_EnvSessionCreation = 0;
     std::atomic<bool> g_EnvSessionWatcherStop{false};
@@ -36,6 +37,7 @@ namespace {
         LOG_MISC_INFO("env session cleared ({}): pid={}, session appid {} -> 0",
                       reason, g_EnvSessionPid, g_EnvSessionAppId);
         g_EnvSessionAppId = 0;
+        g_EnvSessionRealAppId = 0;
         g_EnvSessionPid = 0;
         g_EnvSessionCreation = 0;
     }
@@ -215,8 +217,14 @@ namespace {
     HOOK_FUNC(GetAppIDForCurrentPipe, AppId_t, void* pEngine) {
         if (pEngine) g_steamEngine = pEngine;
         const AppId_t real = oGetAppIDForCurrentPipe ? oGetAppIDForCurrentPipe(pEngine) : 0;
+        // 三条同时成立才洗：
+        //   ① 有环境变量会话；② 客户端算出的 appid 与会话身份不同；
+        //   ③ **就是会话那条 pipe**（握手时量到的真值；量不到时退化为宽口径，见 EngageEnvSession）；
+        //   ④ 该 appid 在本机 lua 里配过（避免误伤本项目没管的游戏）。
+        const bool sameAsSessionPipe =
+            (g_EnvSessionRealAppId == 0) || (real == g_EnvSessionRealAppId);
         if (g_EnvSessionAppId != 0 && real != 0 && real != g_EnvSessionAppId
-            && LuaConfig::HasDepot(real, false)) {
+            && sameAsSessionPipe && LuaConfig::HasDepot(real, false)) {
             static std::atomic<int> logged{0};
             if (logged.fetch_add(1) < 8)
                 LOG_MISC_INFO("GetAppIDForCurrentPipe: {} -> {} (env session)", real, g_EnvSessionAppId);
@@ -300,13 +308,13 @@ namespace Hooks_Misc {
     // 登记"环境变量会话"：游戏进程的 SteamAppId 环境变量给出了会话身份（OnlineHost 式
     // 启动会带上），而客户端内部仍会把这个进程算成真 appid —— 洗白需要知道会话身份，
     // 由 PipeManager 在握手时喂进来。
-    void EngageEnvSession(PID_t pid, uint64 creationTime, AppId_t envAppId) {
+    void EngageEnvSession(PID_t pid, uint64 creationTime, AppId_t envAppId, AppId_t clientAppId) {
         if (!Config::GetOnlinefixEnvSession()) return;      // [onlinefix] env_session=false → 不启用
         if (envAppId == 0 || envAppId == k_uAppIdInvalid) return;
         if (pid == 0) return;
         // 幂等：同一个进程的同一次会话不重复登记。
         if (g_EnvSessionPid == pid && g_EnvSessionCreation == creationTime
-            && g_EnvSessionAppId == envAppId) return;
+            && g_EnvSessionAppId == envAppId && g_EnvSessionRealAppId == clientAppId) return;
 
         // 换了进程 = 新会话：把旧的换掉（旧看门狗会自行退出）。
         if (g_EnvSessionAppId != 0 && g_EnvSessionPid != pid)
@@ -315,8 +323,15 @@ namespace Hooks_Misc {
         g_EnvSessionPid = pid;
         g_EnvSessionCreation = creationTime;
         g_EnvSessionAppId = envAppId;
+        g_EnvSessionRealAppId = clientAppId;
         StartEnvSessionWatcher(pid);
-        LOG_MISC_INFO("env session armed: session appid = {} (pid={})", envAppId, pid);
+
+        if (clientAppId == 0)
+            LOG_MISC_WARN("env session armed: session appid = {} (pid={})，但没量到客户端视角的真 appid"
+                          " —— 洗白退化为宽口径（只看 HasDepot，可能波及其它游戏）", envAppId, pid);
+        else
+            LOG_MISC_INFO("env session armed: session appid = {} (pid={})，会话 pipe 的真 appid = {}",
+                          envAppId, pid, clientAppId);
     }
 
     AppId_t GetAppIDForCurrentPipeWrap() {

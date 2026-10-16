@@ -26,8 +26,10 @@ namespace Hooks_Misc {
 
     // Route A 实验（2026-10-16）：登记"环境变量会话"—— 游戏进程的 SteamAppId 环境变量
     // 给出会话身份（GUI 的 OnlineHost 启动器会设），供客户端内部 appid 洗白使用。
-    // 只登记会话身份；"哪些 appid 该洗"由 GetAppIDForCurrentPipe 的 hook 自行判断。
-    void EngageEnvSession(PID_t pid, uint64 creationTime, AppId_t envAppId);
+    // clientAppId = 客户端视角里这条 pipe 的真 appid（握手那一刻量，传 0 = 没量到），
+    // 用来把洗白**限定在会话那条 pipe** 上：否则同时开着另一个也配过库的游戏时，
+    // 它的 pipe 会被一起洗坏。量不到就退化为"只看 HasDepot"的宽口径并记日志。
+    void EngageEnvSession(PID_t pid, uint64 creationTime, AppId_t envAppId, AppId_t clientAppId);
 
     // Call when the game uses SteamNetworkingSockets (IPC interface 46).
     void NotifyNetworkingSocketsUsed();
