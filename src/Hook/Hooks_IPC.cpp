@@ -138,6 +138,8 @@ namespace {
     // 改为把 pid 打进每条记录，由 pid 自己说明是哪个进程。
     std::unordered_map<std::string, uint32> g_IpcProfile;
     std::mutex g_IpcProfileMutex;
+    // 联网接口（46/50）不分去重、每会话最多记这么多行
+    uint32 g_IpcNetBudget = 300;
 
     void ProfileIpcCall(void* pServer, HSteamPipe hSteamPipe, CUtlBuffer* pRead) {
         // 观测：老路线 -onlinefix，以及新的"环境变量会话"（宿主会话）都要看得到调用列表。
@@ -151,17 +153,24 @@ namespace {
         CPipeClient* pipe = GetPipe(pServer, hSteamPipe);
         const uint32 pid = pipe ? pipe->m_clientPID : 0;
 
-        const uint64 key = (static_cast<uint64>(pid) << 32) ^ call.funcHash();
-        {
+        const uint32 iface = static_cast<uint32>(call.interfaceID());
+        // 联网接口（46 IClientNetworkingSocketsSerialized / 50 IClientNetworkingUtilsSerialized）
+        // 每一次都要留下痕迹：P2P 的成败就在这些调用的**顺序与入参**里（建监听套接字带端口、
+        // 连接带对端 SteamID），去重会把关键那次吃掉。其余接口维持"只记一次"。
+        const bool netIface = (iface == 46 || iface == 50);
+        if (netIface) {
+            if (g_IpcNetBudget == 0) return;
+            --g_IpcNetBudget;
+        } else {
             std::lock_guard<std::mutex> lock(g_IpcProfileMutex);
-            uint32& seen = g_IpcProfile[std::format("{}|{}|{}", pid,
-                                static_cast<uint32>(call.interfaceID()), call.funcHash())];
+            uint32& seen = g_IpcProfile[std::format("{}|{}|{}", pid, iface, call.funcHash())];
             if (seen++ > 0) return;       // 记录过 → 只计数
         }
 
         const IPCLoader::Method* m = IPCLoader::Find(call.interfaceID(), call.funcHash());
         const auto body = call.body();
-        const size_t shown = body.size() < 24 ? body.size() : 24;
+        const size_t cap = netIface ? 256 : 24;
+        const size_t shown = body.size() < cap ? body.size() : cap;
         std::string hex;
         for (size_t i = 0; i < shown; ++i)
             hex += std::format("{:02X} ", body[i]);
@@ -169,7 +178,7 @@ namespace {
         LOG_IPC_INFO("IPC profile: pid={} {}({})::{} hash=0x{:08X} argc={} bodyBytes={} head={}",
                      pid,
                      EIPCInterfaceName(call.interfaceID()),
-                     static_cast<uint32>(call.interfaceID()),
+                     iface,
                      m ? m->name.c_str() : "<元数据未收录>",
                      call.funcHash(), m ? m->argc : 0, body.size(), hex);
     }
@@ -202,7 +211,9 @@ namespace {
 
         IPCMessages::IPCResponse resp{pWrite};
         const auto body = resp.body();
-        const size_t shown = body.size() < 24 ? body.size() : 24;
+        // 联网接口把返回体多打一些（建监听套接字/连接句柄就在开头几个字节）
+        const size_t cap = (iface == 46 || iface == 50) ? 256 : 24;
+        const size_t shown = body.size() < cap ? body.size() : cap;
         std::string hex;
         for (size_t i = 0; i < shown; ++i)
             hex += std::format("{:02X} ", body[i]);
