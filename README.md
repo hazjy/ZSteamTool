@@ -91,7 +91,7 @@ ZSteamTool 是一个注入 Steam 客户端的内核（三个 DLL），用来解�
 两点注意：
 
 - 它的实现**按特征码 hook `steamclient64.dll`**，Steam 客户端大更新后可能失效；原作者不会再有修复 → 需**用上面的源码自行构建**（MIT 许可，`cmake -B build -G "Visual Studio 17 2022" -A x64` → `build/Release/cloud_redirect.dll`）。
-- 本机在用的那份 `cloud_redirect.dll` 是**他人魔改版**（把重定向改到创意工坊实现），**不是原版**；要原版行为请自行构建，别拿它当原版参照。
+- 本项目**不附带**任何 `cloud_redirect.dll` 副本。自备 DLL 时请留意来源：第三方改版可能改了行为（例如把重定向实现到别的通道），与上面保真源码构建出来的**不等价**；要原版行为就用保真源码自建。
 
 许可证与版权归属见 [`NOTICE`](NOTICE)。
 
