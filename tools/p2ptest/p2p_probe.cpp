@@ -29,7 +29,18 @@ typedef bool (__cdecl *AcceptFn)(void*, unsigned int);
 
 // 探针自身修订号：**每次改动必须递增**，同时包名也带同一个号
 // （规则：改一次、名字就要能区分一次，避免"这包是哪个版本"的扯皮）
-static const int kProbeRev = 5;
+static const int kProbeRev = 6;
+
+static int real_main(int argc, char** argv);
+
+// 外层包装：跑完停住等回车 —— 这样双击运行也能看到结果（否则窗口一闪而过）
+int main(int argc, char** argv)
+{
+    const int rc = real_main(argc, argv);
+    printf("\n[结束] 退出码=%d。按回车键关闭窗口...", rc);
+    (void)getchar();
+    return rc;
+}
 
 static void* g_pS = nullptr;
 static AcceptFn g_accept = nullptr;
@@ -75,7 +86,7 @@ static void __cdecl OnConnStatus(void* pInfo)
     }
 }
 
-int main(int argc, char** argv)
+static int real_main(int argc, char** argv)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
 
