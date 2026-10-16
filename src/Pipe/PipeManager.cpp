@@ -155,6 +155,11 @@ void OnHandshake(CPipeClient* pipe) {
     // （GUI 的 OnlineHost）继承到陈旧状态。
     if (ctx.gameProcess) Hooks_Misc::TrackOnlineFixGameProcess(ctx.process.pid);
 
+    // Route A 实验：登记"环境变量会话"（OnlineHost 式启动会给游戏进程设 SteamAppId 等）。
+    // 见 Hooks_Misc::EngageEnvSession / GetAppIDForCurrentPipe 的 hook。
+    if (ctx.gameProcess)
+        Hooks_Misc::EngageEnvSession(ctx.process.pid, snapshot.environment.ResolveAppId());
+
     DenuvoAuth::Apply(ctx);
     Injection::Apply(ctx);
 }

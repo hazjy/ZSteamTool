@@ -24,6 +24,11 @@ namespace Hooks_Misc {
     // that process, so it is dropped as soon as the process exits.
     void TrackOnlineFixGameProcess(PID_t pid);
 
+    // Route A 实验（2026-10-16）：登记"环境变量会话"—— 游戏进程的 SteamAppId 环境变量
+    // 给出会话身份（GUI 的 OnlineHost 启动器会设），供客户端内部 appid 洗白使用。
+    // 只登记会话身份；"哪些 appid 该洗"由 GetAppIDForCurrentPipe 的 hook 自行判断。
+    void EngageEnvSession(PID_t pid, AppId_t envAppId);
+
     // Call when the game uses SteamNetworkingSockets (IPC interface 46).
     void NotifyNetworkingSocketsUsed();
 

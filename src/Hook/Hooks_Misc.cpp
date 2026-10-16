@@ -13,8 +13,19 @@ namespace {
 
     // ── VEH-captured functions (one-shot int3) ───────────────────────────────
     // On int3 hit, ctx->Rcx is stored to the named output variable.
-    CAPTURE_THIS_FUNC(GetAppIDForCurrentPipe, AppId_t,      g_steamEngine,    void*);
+    // 注：GetAppIDForCurrentPipe 已从"捕获"改为"真 hook"（见下方 hkGetAppIDForCurrentPipe），
+    // 因为它需要在客户端内部被改值 —— engine 指针改由 hook 自己顺手捕获。
+    void* g_steamEngine = nullptr;
     CAPTURE_THIS_FUNC(GetAppDataFromAppInfo,  int64,        g_pCAppInfoCache, void*, AppId_t, const char*, uint8*, int32);
+
+    // ── Route A 实验（2026-10-16）：客户端侧 appid 洗白 ───────────────────────
+    // 背景（实测）：`k_EMsgClientMMSCreateLobby` 的 `#1` **由 steamclient 按"这个进程
+    // 属于哪个应用"填入**，既不看游戏在库内/库外，也不看游戏进程的 SteamAppId 环境变量
+    // —— 于是入库游戏永远带着真 appid 去建厅，被 Valve 判 `AccessDenied`。
+    // 这里把客户端内部取 appid 的那一处改成返回"会话 appid"，使报文与会话一致；
+    // 仅当该 appid 是本机 lua 配过的游戏（`HasDepot`）且与游戏进程环境变量给的会话
+    // 身份不同时才生效，把影响面压到最小。
+    AppId_t g_EnvSessionAppId = 0;   // 游戏进程环境变量指定的会话身份（OnlineHost 会设成 480）
 
     // Assumes one game at a time.  Set by SpawnProcess VEH when -onlinefix
     // is detected; cleared when a non-onlinefix game launches, or when the
@@ -157,6 +168,26 @@ namespace {
         return oOptedInMask(pThis, appId);
     }
 
+    // ── Route A 实验：客户端内部 appid 洗白 ──────────────────────────────────
+    // 客户端各处靠它判断"当前 pipe 属于哪个 appid"（MMS 建厅这类由客户端填 appid 的
+    // 报文都走这里）。在"环境变量会话"模式下把真 appid 换成会话 appid，让报文与会话
+    // 一致 —— 若成立，Valve 会按 Spacewar 服务我们。
+    //
+    // 只洗"客户端内部调用"（即本 hook）；内核自己的逻辑走 GetAppIDForCurrentPipeWrap()
+    // 取原始值，免得把内核自己的 app 追踪也一起改掉。
+    HOOK_FUNC(GetAppIDForCurrentPipe, AppId_t, void* pEngine) {
+        if (pEngine) g_steamEngine = pEngine;
+        const AppId_t real = oGetAppIDForCurrentPipe ? oGetAppIDForCurrentPipe(pEngine) : 0;
+        if (g_EnvSessionAppId != 0 && real != 0 && real != g_EnvSessionAppId
+            && LuaConfig::HasDepot(real, false)) {
+            static std::atomic<int> logged{0};
+            if (logged.fetch_add(1) < 8)
+                LOG_MISC_INFO("GetAppIDForCurrentPipe: {} -> {} (env session)", real, g_EnvSessionAppId);
+            return g_EnvSessionAppId;
+        }
+        return real;
+    }
+
     // ── CUser_BuildSpawnEnvBlock ─────────────────────────────────────────────
     // pOverlayCGameID drives SteamOverlayGameId, which the in-game overlay
     // reads. Upstream/BST restores it to the real appid for screenshot tags /
@@ -207,7 +238,6 @@ namespace Hooks_Misc {
     void Install() {
         RESOLVE_C(CUtlBufferEnsureCapacity);
 
-        ARM_CAPTURE_C(GetAppIDForCurrentPipe);
         ARM_CAPTURE_C(GetAppDataFromAppInfo);
 
         ARM_INT3_C(SpawnProcess, true, &OnSpawnProcessHit, nullptr);
@@ -215,6 +245,7 @@ namespace Hooks_Misc {
         HOOK_BEGIN();
         INSTALL_HOOK_C(BuildSpawnEnvBlock);
         INSTALL_HOOK_C(OptedInMask);
+        INSTALL_HOOK_C(GetAppIDForCurrentPipe);
         // INSTALL_HOOK_C(GetOrAddAppData);
         HOOK_END();
     }
@@ -224,16 +255,27 @@ namespace Hooks_Misc {
         UNHOOK_BEGIN();
         UNINSTALL_HOOK(BuildSpawnEnvBlock);
         UNINSTALL_HOOK(OptedInMask);
+        UNINSTALL_HOOK(GetAppIDForCurrentPipe);
         // UNINSTALL_HOOK(GetOrAddAppData);
         UNHOOK_END();
     }
 
+    // 登记"环境变量会话"：游戏进程的 SteamAppId 环境变量给出了会话身份（OnlineHost 式
+    // 启动会带上），而客户端内部仍会把这个进程算成真 appid —— 洗白需要知道会话身份，
+    // 由 PipeManager 在握手时喂进来。
+    void EngageEnvSession(PID_t /*pid*/, AppId_t envAppId) {
+        if (g_EnvSessionAppId != 0) return;
+        if (envAppId == 0 || envAppId == k_uAppIdInvalid) return;
+        g_EnvSessionAppId = envAppId;
+        LOG_MISC_INFO("env session armed: session appid = {}", envAppId);
+    }
+
     AppId_t GetAppIDForCurrentPipeWrap() {
-        if (!CAPTURE_READY(GetAppIDForCurrentPipe)) {
-            LOG_MISC_WARN("GetAppIDForCurrentPipeWrap called before capture — returning 0");
+        if (!oGetAppIDForCurrentPipe || !g_steamEngine) {
+            LOG_MISC_WARN("GetAppIDForCurrentPipeWrap called before hook captured the engine — returning 0");
             return 0;
         }
-        auto appid = oGetAppIDForCurrentPipe(g_steamEngine);
+        const AppId_t appid = oGetAppIDForCurrentPipe(g_steamEngine);   // 原始值（不洗白）
         if (!appid) {
             LOG_MISC_TRACE("GetAppIDForCurrentPipeWrap: AppId=0(Not GamePipe)");
         } else {
