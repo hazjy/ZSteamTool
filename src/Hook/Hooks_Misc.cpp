@@ -217,18 +217,28 @@ namespace {
     HOOK_FUNC(GetAppIDForCurrentPipe, AppId_t, void* pEngine) {
         if (pEngine) g_steamEngine = pEngine;
         const AppId_t real = oGetAppIDForCurrentPipe ? oGetAppIDForCurrentPipe(pEngine) : 0;
-        // 三条同时成立才洗：
+
+        // 洗白条件（四条同时成立）：
         //   ① 有环境变量会话；② 客户端算出的 appid 与会话身份不同；
-        //   ③ **就是会话那条 pipe**（握手时量到的真值；量不到时退化为宽口径，见 EngageEnvSession）；
-        //   ④ 该 appid 在本机 lua 里配过（避免误伤本项目没管的游戏）。
-        const bool sameAsSessionPipe =
-            (g_EnvSessionRealAppId == 0) || (real == g_EnvSessionRealAppId);
+        //   ③ 该 appid 在本机 lua 里配过（避免误伤本项目没管的游戏）；
+        //   ④ **就是会话那条 pipe** —— 以 g_EnvSessionRealAppId 为准。
         if (g_EnvSessionAppId != 0 && real != 0 && real != g_EnvSessionAppId
-            && sameAsSessionPipe && LuaConfig::HasDepot(real, false)) {
-            static std::atomic<int> logged{0};
-            if (logged.fetch_add(1) < 8)
-                LOG_MISC_INFO("GetAppIDForCurrentPipe: {} -> {} (env session)", real, g_EnvSessionAppId);
-            return g_EnvSessionAppId;
+            && LuaConfig::HasDepot(real, false)) {
+
+            // 真值在握手那一刻量不到（引擎指针还没就绪、或"当前 pipe"语义不适用），
+            // 于是改为**第一次判定时锁定**：此刻在飞的正是刚握手的那个游戏进程。
+            // 锁定之后，别的游戏的 pipe（appid 不同）就不再被波及。
+            if (g_EnvSessionRealAppId == 0) {
+                g_EnvSessionRealAppId = real;
+                LOG_MISC_INFO("env session: 锁定会话 pipe 的真 appid = {}（首次判定时学习）", real);
+            }
+
+            if (real == g_EnvSessionRealAppId) {
+                static std::atomic<int> logged{0};
+                if (logged.fetch_add(1) < 8)
+                    LOG_MISC_INFO("GetAppIDForCurrentPipe: {} -> {} (env session)", real, g_EnvSessionAppId);
+                return g_EnvSessionAppId;
+            }
         }
         return real;
     }
@@ -327,8 +337,9 @@ namespace Hooks_Misc {
         StartEnvSessionWatcher(pid);
 
         if (clientAppId == 0)
-            LOG_MISC_WARN("env session armed: session appid = {} (pid={})，但没量到客户端视角的真 appid"
-                          " —— 洗白退化为宽口径（只看 HasDepot，可能波及其它游戏）", envAppId, pid);
+            LOG_MISC_INFO("env session armed: session appid = {} (pid={})；握手时量不到会话 pipe 的真 appid"
+                          " —— 将在首次判定时锁定（日志里会有一行『锁定会话 pipe 的真 appid』）",
+                          envAppId, pid);
         else
             LOG_MISC_INFO("env session armed: session appid = {} (pid={})，会话 pipe 的真 appid = {}",
                           envAppId, pid, clientAppId);
