@@ -254,7 +254,7 @@ namespace {
         // handle handshake messages
         HandleHandshake(pServer, hSteamPipe, pRead);
         DetectNetworkingSockets(pRead);
-        RewriteOutboundAppId(pRead);
+        if (kEnableAppIdRewrites) RewriteOutboundAppId(pRead);
         ProfileIpcCall(pServer, hSteamPipe, pRead);
 
         IPCDispatch dispatch = ResolveDispatch(pServer, hSteamPipe, pRead);

@@ -1622,7 +1622,8 @@ namespace {
                                    const uint8* pBody, uint32 cbBody,
                                    bool allowRewrite)
     {
-        if (!Hooks_Misc::IsOnlineFixActive() || !pBody || cbBody < 2)
+        // 观测不受 onlinefix 会话限制（诊断用；改写仍受 kEnableAppIdRewrites 约束）。
+        if (!pBody || cbBody < 2)
             return false;
 
         const AppId_t session = Hooks_Misc::SessionAppId();
@@ -1690,9 +1691,9 @@ namespace {
         // 服务器浏览器：先观测命中情况；-realappid 时才把公开查询的 appid 改成真值
         // （MasterServerQuery 决定"列出哪个游戏的服务器"，是本次问题的关键一条）。
         case HASH_JOB_GameServersMasterQuery:
-            return HandleSend_GameServersJob("GameServers.MasterServerQuery#1", pBody, cbBody, true);
+            return HandleSend_GameServersJob("GameServers.MasterServerQuery#1", pBody, cbBody, kEnableAppIdRewrites);
         case HASH_JOB_GameServersRepository:
-            return HandleSend_GameServersJob("GameServers.Repository#1", pBody, cbBody, true);
+            return HandleSend_GameServersJob("GameServers.Repository#1", pBody, cbBody, kEnableAppIdRewrites);
         case HASH_JOB_GameServersFriends:
             return HandleSend_GameServersJob("GameServers.FriendsQuery#1", pBody, cbBody, false);
         // 建房时向 Valve 登记本机服务（自报 appid），先只观测，确认格式后再决定是否改。
@@ -1713,7 +1714,8 @@ namespace {
         LOG_NETPACKET_DEBUG("Send eMsg {}({}) (cbBody={}, cbHdr={})",
                         MsgName(eMsg), static_cast<uint32>(eMsg), cbBody, cbHdr);
         DumpMms("send", eMsg, pBody, cbBody);
-        if (RewriteMmsAppId(eMsg, pBody, cbBody,
+        if (kEnableAppIdRewrites &&
+            RewriteMmsAppId(eMsg, pBody, cbBody,
                             Hooks_Misc::ResolveAppId(), Hooks_Misc::SessionAppId()))
             g_NeedReplaceSend = true;
 
@@ -1795,7 +1797,8 @@ namespace {
         LOG_NETPACKET_DEBUG("Recv eMsg {}({}) (cbBody={}, cbHdr={})",
                         MsgName(eMsg), static_cast<uint32>(eMsg), cbBody, cbHdr);
         DumpMms("recv", eMsg, pBody, cbBody);
-        if (RewriteMmsResponseAppId(eMsg, pBody, cbBody,
+        if (kEnableAppIdRewrites &&
+            RewriteMmsResponseAppId(eMsg, pBody, cbBody,
                                     Hooks_Misc::SessionAppId(), Hooks_Misc::ResolveAppId()))
             g_NeedReplaceBody = true;
 
