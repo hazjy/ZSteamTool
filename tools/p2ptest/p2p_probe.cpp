@@ -76,9 +76,10 @@ int main(int argc, char** argv)
     setvbuf(stdout, NULL, _IONBF, 0);
 
     const char* mode = (argc > 1) ? argv[1] : nullptr;
-    if (!mode || (strcmp(mode, "listen") != 0 && strcmp(mode, "connect") != 0)) {
+    if (!mode || (strcmp(mode, "listen") != 0 && strcmp(mode, "connect") != 0 && strcmp(mode, "pop") != 0)) {
         puts("usage: p2p_probe.exe listen <virtualPort> [--seconds N] [--appid ID] [--api PATH]");
         puts("       p2p_probe.exe connect <peerSteamID> <virtualPort> [--seconds N] [--appid ID] [--api PATH]");
+        puts("       p2p_probe.exe pop [--appid ID] [--api PATH]      (查本机到 Steam 中继节点的 ping)");
         return 1;
     }
 
@@ -90,7 +91,7 @@ int main(int argc, char** argv)
 
     int i = 2;
     if (strcmp(mode, "listen") == 0) { if (argc > i) vport = atoi(argv[i++]); }
-    else { if (argc > i) peer = _strtoui64(argv[i++], nullptr, 10); if (argc > i) vport = atoi(argv[i++]); }
+    else if (strcmp(mode, "connect") == 0) { if (argc > i) peer = _strtoui64(argv[i++], nullptr, 10); if (argc > i) vport = atoi(argv[i++]); }
     for (; i + 1 < argc; ++i) {
         if (strcmp(argv[i], "--seconds") == 0) seconds = atoi(argv[++i]);
         else if (strcmp(argv[i], "--appid") == 0) appid = _strtoui64(argv[++i], nullptr, 10);
@@ -133,6 +134,35 @@ int main(int argc, char** argv)
 
     g_stat = (StatFn)GetProcAddress(api, "SteamAPI_ISteamNetworkingSockets_GetDetailedConnectionStatus");
     RunCbFn runcb = (RunCbFn)GetProcAddress(api, "SteamAPI_ISteamNetworkingSockets_RunCallbacks");
+
+    // ── pop 模式：查本机到 Steam 中继网络（SDR）各节点的直连 ping ──────────────
+    // P2P 走的是 SDR；POP ping 全无数据，说明本机到中继节点的链路本身不通。
+    if (strcmp(mode, "pop") == 0) {
+        typedef bool (__cdecl *CheckFn)(void*, float);
+        typedef int  (__cdecl *CountFn)(void*);
+        typedef int  (__cdecl *ListFn)(void*, unsigned int*, int);
+        typedef int  (__cdecl *PingFn)(void*, unsigned int);
+        CheckFn check = (CheckFn)GetProcAddress(api, "SteamAPI_ISteamNetworkingUtils_CheckPingDataUpToDate");
+        CountFn cnt   = (CountFn)GetProcAddress(api, "SteamAPI_ISteamNetworkingUtils_GetPOPCount");
+        ListFn  lst   = (ListFn)GetProcAddress(api, "SteamAPI_ISteamNetworkingUtils_GetPOPList");
+        PingFn  ping  = (PingFn)GetProcAddress(api, "SteamAPI_ISteamNetworkingUtils_GetDirectPingToPOP");
+        if (!pU || !cnt || !lst || !ping) { puts("[6] 缺少 POP 相关接口"); return 9; }
+        if (check) printf("[6] CheckPingDataUpToDate(10s) -> %d\n", (int)check(pU, 10.0f));
+        printf("[7] POP 总数 = %d\n", cnt(pU));
+        unsigned int list[256]; ZeroMemory(list, sizeof(list));
+        const int got = lst(pU, list, 256);
+        printf("[8] 取得 POP 列表 %d 个\n", got);
+        int ok = 0;
+        for (int k = 0; k < got && k < 256; ++k) {
+            const unsigned int id = list[k];
+            const int ms = ping(pU, id);
+            char tag[5] = { (char)((id >> 24) & 0xFF), (char)((id >> 16) & 0xFF), (char)((id >> 8) & 0xFF), (char)(id & 0xFF), 0 };
+            printf("    POP %-5s  ping=%4d ms%s\n", tag, ms, ms >= 0 ? "" : "  (无数据)");
+            if (ms >= 0) ++ok;
+        }
+        printf("[9] 有 ping 数据的 POP: %d / %d\n", ok, got);
+        return 0;
+    }
 
     if (strcmp(mode, "listen") == 0) {
         // 有人连进来时要接受它：用连接状态回调自动 Accept
