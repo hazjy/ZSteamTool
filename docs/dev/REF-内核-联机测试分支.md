@@ -27,24 +27,40 @@
 | `src/dllmain.h` | `kEnableAppIdRewrites = false`：MMS 建厅 / 服务器查询 / RemoteStorage 那批报文改写全部不启用 |
 | 垫片 `src/dwmapi` · `src/xinput1_4` | 两个垫片都只做"导出转发 + 加载 `OpenSteamTool.dll`"，且**只在宿主 exe 名 = `steam.exe` 时加载内核**（改名即不注入）；任一垫片单独存在也能加载内核 |
 
-## 3. 验证状态（截至 2026-10-16 20:45）
+## 3. 验证状态（截至 2026-10-17 00:05）
 
-**已实证**
+### 2026-10-16 夜 v2 双机实测（好友当房主，本机当加入方）
 
-- 建房成功：`MMS CreateLobby(6601) #1=480` → `CreateLobbyResponse(6602) #1=480 … #3=1` + 大厅 SteamID（11:30 `109775241059253359`、20:38 `109775241059920251`）；随后 `SetLobbyData` / `LobbyData` / `LeaveLobby` 全 `#3=1`。
-- 界面：**建房成功且 Steam 邀请好友弹窗正常出现**；服务器列表是 480 世界。
-- **零报文改写**（诊断开关关闭后，`MMS appid rewrite` 行数 0）。
-- 会话生命周期：`armed(宿主) → re-armed(游戏) → cleared(退出)` 三行齐 ✓（新代码在真实场景工作）。
-- 20:38 那轮 `misc/netpacket/ipc/pipe/onlinefix` 的 warning+error 合计 **0**。
+- **PEAK：正常**（v1 下实测；双向都能建房/加入，两个账号在同一 480 大厅互发消息 `LobbyChatMsg` ✓）→ 老游戏回归通过，`锁定会话 pipe 的真 appid` 与 `4108000 -> 480` 全部按设计工作。
+- **机械狂欢：大厅层全通，但加入方最终连不上**，逐层证据：
+  1. `CreateLobby(6601) #1=480 → #3=1`（房主建房 ✓）、`InviteToLobby(6621)` ✓、**`UserJoinedLobby(6619)`**（对端确实进厅 ✓）；
+  2. 加入方 `JoinLobby(6603) #3=1` ✓（同一 480 大厅 ✓）；
+  3. 加入方联网调用**全部 `result=OK`**，且：
+     - `46::0xAF9F2205` 响应 129 B = **STUN 服务器 `103.28.54.178:3478`** ✓
+     - `46::0x61AE97CB` 请求体 = connect string `steamid:<房主ID>` → 响应 4 B `0A 00 00 00` = **连接句柄 10（受理 ✓）**
+     - `46::0x784B61FE` 每 ~0.5 s 轮询一次、响应体 0 B（客户端在等连接状态）
+  4. **约 8 秒后 `LeaveLobby`，连接始终未 CONNECTED** ✗ → 游戏侧报 `Trying to call an RPC via a multiplayer peer which is not connected`（`%APPDATA%\Godot\app_userdata\Machine Party\logs\godot.log`）。
+  → 结论：**不是身份/appid/大厅的问题，而是 P2P 连接建立本身**；首要嫌疑是**房主侧 `CreateListenSocketP2P` 没建起监听套接字**（插件 `create_host` 在这种情况下返回 `ERR_CANT_CREATE`，而 guest 的 `ConnectP2P` 仍会被受理、然后永远连不上）。
+- **v2 的行为改动已验证**：`GetAppID: spoof response 480 -> 4108000` 在 v2 下**消失**（0 条 ✓），进入会话后游戏侧也看 480 ✓。
 
-**未实证 / 存疑（下一步就是它们）**
+### 实验过程中被排除的两条（都很值钱）
 
-- ⚠️ **20:38 那轮洗白日志 0 条** → 报文上分不清"客户端自己就认为这条 pipe 是 480"还是"靠我们洗成 480"；已加探针 `env session probe: real=… session=… locked=…`（会话期内前 12 次），**等一次单人重跑**（机械狂欢 + 宿主会话，无需好友）即可定论。
-- ⚠️ 因此 **"限定到会话那条 pipe"（作用域）与"首次判定时锁定"两条逻辑本身还没被验证**。
-- ⚠️ **对端能否加入**（真·双机）：等好友 → 你 `Start → Host`，好友（同版本内核 + 从宿主会话启动）用房间 ID / 接受邀请进入。
-- ⚠️ **PEAK（宿主会话，3527290）回归**：确认这条路没被本次改动弄坏。
+1. **邀请链接是死路**：点 Steam 邀请会让 Steam 自己启动游戏、绕过宿主会话 → 会话环境变量不存在 → 直接失败；只能用「房间 ID」加入。
+2. **"机械狂欢老症状"里有一半是插件状态机 + 测试流程**：GodotSteam 的 `steam-multiplayer-peer`（expressobits 版）在 `active_mode != MODE_NONE` 时拒绝 `create_client`（`steam_multiplayer_peer.cpp:267`），而 `active_mode` **只在成功时被设置、只有 `_close()` 才归零** → **同一进程里先当过房主，就再也点不了 Join**（日志：`The multiplayer instance is already active.`）。修正流程后该错误消失 ✓。加入方必须**全新启动 → 直接 Join**，中途换角色要重启游戏。
+
+### 未实证 / 下一步
+
+- ⚠️ **房主侧 `CreateListenSocketP2P` 的响应句柄未采到**：需要**房主**那一侧在 v3 下跑一轮（本机自己当房主即可，单人可做）→ 看 `ipc.log` 里 4 字节句柄是 0（失败 ✗）还是非 0（成功 ✓）。
+- ⚠️ **PEAK 在 v2 下未回归**（v2 把游戏侧 appid 也改成 480，理论上有影响面）。
+- ⚠️ 真·双机"进房后能实际玩"仍未达成。
 
 **读日志时的判据行**（都落在 `<Steam>\opensteamtool\`）
+
+- 建房成功：`MMS CreateLobby(6601) #1=480` → `CreateLobbyResponse(6602)` 带大厅 SteamID（11:30 `109775241059253359`、20:38 `109775241059920251`、23:46 `109775241083874096`）→ 随后 `SetLobbyData` / `LobbyData` / `LeaveLobby` 全 `#3=1`。
+- 界面：**建房成功且 Steam 邀请好友弹窗正常出现**（但邀请链接本身不可用，见上）；服务器列表是 480 世界。
+- **零报文改写**（`kEnableAppIdRewrites=false` 后，`MMS appid rewrite` 行数 0）。
+- 会话生命周期：`armed(宿主) → re-armed(游戏) → cleared(退出)` 三行齐 ✓。
+- 早期几轮 `misc/netpacket/ipc/pipe/onlinefix` 的 warning+error 合计 0。
 
 ```
 misc.log      env session armed: session appid = 480 (pid=…)…            ← 登记（含真值或"将在首次判定时锁定"）
