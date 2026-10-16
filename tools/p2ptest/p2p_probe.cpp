@@ -27,6 +27,10 @@ typedef void (__cdecl *SetConnCbFn)(void*, ConnCbFn);
 typedef void (__cdecl *RunCbFn)(void*);
 typedef bool (__cdecl *AcceptFn)(void*, unsigned int);
 
+// 探针自身修订号：**每次改动必须递增**，同时包名也带同一个号
+// （规则：改一次、名字就要能区分一次，避免"这包是哪个版本"的扯皮）
+static const int kProbeRev = 5;
+
 static void* g_pS = nullptr;
 static AcceptFn g_accept = nullptr;
 static StatFn g_stat = nullptr;
@@ -98,7 +102,7 @@ int main(int argc, char** argv)
         else if (strcmp(argv[i], "--api") == 0) apiPath = argv[++i];
     }
 
-    printf("[1] mode=%s virtualPort=%d appid=%llu seconds=%d api=%s\n", mode, vport, appid, seconds, apiPath);
+    printf("[1] mode=%s virtualPort=%d appid=%llu seconds=%d rev=%d api=%s\n", mode, vport, appid, seconds, kProbeRev, apiPath);
 
     // 自己把会话身份写进环境变量（steam_api 在 Init 时读它）。不设的话，
     // 直接双击运行会因为没有 appid 而初始化失败 —— 这也是本探针要"自带身份"的原因：
