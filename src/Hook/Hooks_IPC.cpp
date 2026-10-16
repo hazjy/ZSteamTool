@@ -192,7 +192,10 @@ namespace {
         if (!call.ok()) return;
 
         const uint32 iface = static_cast<uint32>(call.interfaceID());
-        if (iface != 3 && iface != 6) return;   // IClientFriends / IClientMatchmaking
+        // IClientFriends(3) / IClientMatchmaking(6) / IClientNetworkingSocketsSerialized(46)
+        // / IClientNetworkingUtilsSerialized(50)：后两个是联机失败排查的关键 ——
+        // P2P 连接/证书/SDR 的成败就体现在它们的返回码里（机械狂欢正是卡在这一层）。
+        if (iface != 3 && iface != 6 && iface != 46 && iface != 50) return;
 
         CPipeClient* pipe = GetPipe(pServer, hSteamPipe);
         const uint32 pid = pipe ? pipe->m_clientPID : 0;
