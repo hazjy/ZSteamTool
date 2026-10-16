@@ -38,11 +38,12 @@ ZSteamTool — 版权与第三方归属声明
   - CloudRedirect（云存档重定向）：MIT License。
     仅当用户自行提供 cloud_redirect.dll 并设置 [cloud] enabled = true 时由本工具加载；
     本仓库只包含自己的宿主 shim（src/Utils/CloudRedirect/CloudRedirectHost.*），不含其源码。
-    上游状况：原作者仓库（github.com/Selectively11/CloudRedirect）已于 2026-10-16 删除，
-    作者不可达；现存出处：
-      · 本机保留克隆（社区维持，源码=上游最终版 v2.6.5，代码零改动）：RefProjects/2-挂起/CloudRedirect
-        引用保真源码请用提交 bc5e38a（该 fork 的 v2.6.5 tag 指向其自身 CI 提交，勿当上游 tag）
-      · 远端：github.com/huanyuejue/CloudRedirect
+    上游状况：原作者仓库（github.com/Selectively11/CloudRedirect）已于 2026-10-16 删除，作者不可达。
+    现状与出处：
+      · 维护仓库（本项目使用的分支，改动在此）：github.com/hazjy/CloudRedirect（fork 自下面的保真分支）
+      · 保真参照（社区保留分支，源码=上游最终版 v2.6.5，代码零改动）：github.com/huanyuejue/CloudRedirect
+        引用保真源码请用提交 bc5e38a（其 v2.6.5 tag 指向自身 CI 提交，勿当上游 tag）
+      · 本机克隆：RefProjects/2-挂起/CloudRedirect（origin=维护仓库；preservation=保真分支；仓库级已配 http.proxy）
       · 永久归档（Software Heritage，最近一次完整抓取 2026-08-20）：
         archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/Selectively11/CloudRedirect
     本机已存档的运行件与出处记录：_archive/20261016-CloudRedirect-删库存档/
