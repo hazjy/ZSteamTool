@@ -26,9 +26,11 @@ namespace {
     // 仅当该 appid 是本机 lua 配过的游戏（`HasDepot`）且与游戏进程环境变量给的会话
     // 身份不同时才生效，把影响面压到最小。
     AppId_t g_EnvSessionAppId = 0;   // 游戏进程环境变量指定的会话身份（OnlineHost 会设成 480）
-    AppId_t g_EnvSessionRealAppId = 0;   // 客户端视角里"会话那条 pipe"的真 appid（0 = 没量到 → 宽口径）
+    AppId_t g_EnvSessionRealAppId = 0;   // 客户端视角里"会话那条 pipe"的真 appid（0 = 还没锁定）
     PID_t   g_EnvSessionPid   = 0;   // 该会话所属的游戏进程（退出即清，见看门狗）
     uint64  g_EnvSessionCreation = 0;
+    // 会话期内 GetAppIDForCurrentPipe 的调用计数：只为观测留痕（每会话前 N 次打印 real 值）
+    std::atomic<int> g_EnvSessionSeenCalls{0};
     std::atomic<bool> g_EnvSessionWatcherStop{false};
 
     // 清掉环境变量会话（进程退出时调用）。
@@ -218,6 +220,12 @@ namespace {
         if (pEngine) g_steamEngine = pEngine;
         const AppId_t real = oGetAppIDForCurrentPipe ? oGetAppIDForCurrentPipe(pEngine) : 0;
 
+        // 观测：会话期内把前若干次调用原样记下来（real 是多少一目了然）——
+        // 用来分辨"客户端自己就给的会话身份"与"靠我们洗白"，这两者从下游报文上看不出来。
+        if (g_EnvSessionAppId != 0 && g_EnvSessionSeenCalls.fetch_add(1) < 12)
+            LOG_MISC_INFO("env session probe: real={} session={} locked={}",
+                          real, g_EnvSessionAppId, g_EnvSessionRealAppId);
+
         // 洗白条件（四条同时成立）：
         //   ① 有环境变量会话；② 客户端算出的 appid 与会话身份不同；
         //   ③ 该 appid 在本机 lua 里配过（避免误伤本项目没管的游戏）；
@@ -334,6 +342,7 @@ namespace Hooks_Misc {
         g_EnvSessionCreation = creationTime;
         g_EnvSessionAppId = envAppId;
         g_EnvSessionRealAppId = clientAppId;
+        g_EnvSessionSeenCalls = 0;      // 观测计数按会话复位
         StartEnvSessionWatcher(pid);
 
         if (clientAppId == 0)
