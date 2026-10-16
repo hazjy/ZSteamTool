@@ -14,7 +14,7 @@
   2. `Hooks_Misc.cpp` BuildSpawnEnvBlock 覆盖层**保持 480**（本地 PEAK 实测方向；与 BST 恢复真实方向冲突，取本地）；
   3. `Hooks_NetPacket.cpp` Persona 好友 480→真实改写（BST 版删除段加回）；
   4. `Steam/Callback.h` 补回 `LobbyInvite_t` + `k_iSteamMatchmakingCallbacks=300`（BST 版删除，本地依赖）。
-- **构建/部署与实机验证（2026-09-08，用户实测）**：Debug v145 构建通过，三 DLL 部署 `d:\steam\`（旧版备份 `内核备份/20260908-pre-bst/`：src + docs + deployed-d-steam）；**UNO** 可正常安装 Ubisoft Connect → 判定正常（730「Updating product key」本地应答生效连带走通）；**PEAK（联机）** 邀请好友界面首次可正常弹出（本地此前"480 原生 + 修复合"对 PEAK 从未成功过；P2P flip 与三件套并存影响仍观察中，待好友侧验证真正可联）；普通 addappid 游戏回归待补（初判无碍）。
+- **构建/部署与实机验证（2026-09-08，用户实测）**：Debug v145 构建通过，三 DLL 部署 `d:\steam\`（当时留过一份部署前备份；备份策略已取消）；**UNO** 可正常安装 Ubisoft Connect → 判定正常（730「Updating product key」本地应答生效连带走通）；**PEAK（联机）** 邀请好友界面首次可正常弹出（本地此前"480 原生 + 修复合"对 PEAK 从未成功过；P2P flip 与三件套并存影响仍观察中，待好友侧验证真正可联）；普通 addappid 游戏回归待补（初判无碍）。
 - **后续**：BST 主体已并入；上游/BST 新 commit 用 FETCH + diff 增量评估（git 需 openssl 后端）；三件套与 P2P flip 共存影响继续用联机样本观察。
 
 ## 稳定结论（跨事件不变）

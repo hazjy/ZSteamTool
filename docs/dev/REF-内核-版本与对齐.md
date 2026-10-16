@@ -9,7 +9,7 @@
 > 基线：BST `c7b435f`；决策落地凭证 code commit `991d55c`、docs `0c67c3c`。事件经过与时间线见 `doc/EVENTS/`。
 
 - **对齐正文已收敛**（一个事实只在一处）：决策与范围、关卡4/AppUpdater 取舍、四处本地手工合并点、后续纪律 → [`REF-内核-BST对齐档案.md`](REF-内核-BST对齐档案.md)。
-- **构建/部署**：Debug v145 构建通过（2026-09-08）；三 DLL 部署 `d:\steam\`，旧版备份 `内核备份/20260908-pre-bst/`（src + docs + deployed-d-steam）。
+- **构建/部署**：Debug v145 构建通过（2026-09-08）；三 DLL 部署 `d:\steam\`。（当时留过一份部署前备份；备份策略已取消——本地开发可从提交重建。）
 - **实机验证（2026-09-08，用户实测）**：**UNO** Steam 运行可正常安装 Ubisoft Connect → 判定正常（730「Updating product key」本地应答生效连带走通）；
   **PEAK（联机）** 邀请好友界面首次可正常弹出——本地此前"480 原生 + 修复合（LobbyInvite/覆盖层/Persona）"对 PEAK 从未成功过，本次为首次成功；⚡ 待好友侧验证真正可联（P2P flip 与三件套并存影响仍观察中）；
   普通 addappid 游戏回归待补（初判无碍）。

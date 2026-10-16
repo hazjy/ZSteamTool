@@ -77,8 +77,8 @@ netpacket.log MMS dump … CreateLobby(6601) #1=… / CreateLobbyResponse(6602) 
 
 - **三件套**：`OpenSteamTool.dll` + `dwmapi.dll` + `xinput1_4.dll` → `<Steam>\`（GUI 的「内核」页可装；手工拷贝等价）。
 - **部署 Debug**（带日志，联机诊断必需）；Release 只用来保证"Release 也编得过"。
-- **备份**：每次部署前存 `内核备份\20261016-expN-<主题>\`。当前部署件 = **`6BDE60E6…`**（`exp12-probe`，20:42）；`20261016-卸载前` 是 1.1.4 原样基线，`exp8-diagonly` 是"零改写"诊断版。
-- **回滚**：把某个备份目录里的三个 DLL 拷回 `<Steam>\` 即可（回滚前先退出 Steam，否则文件被占用）。
+- **部署件**：日常用 Release 构建（`发布包\测试版\ZSteamTool-v1.1.4+联机修复-20261017-r1.zip`，`E8605AB67011B6C5…`）；需要日志排查时改用 `build\Debug` 的同名三件套。
+- **不保留部署快照**：ZST 是本地开发，任何版本都能从对应提交重建；上游/历史版本在各版发布包里（`发布包\正式版\ZSteamTool-v<版本>.zip`）。回滚 = 重新构建或从发布包取，回滚前先退出 Steam。
 
 ## 5. 已知边界（别当 bug 查）
 
