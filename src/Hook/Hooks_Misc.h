@@ -37,6 +37,11 @@ namespace Hooks_Misc {
     // True once P2P started — GetAppID reports 480; before, the real appid.
     bool ShouldReportOnlineFixAppId();
 
+    // True while an "环境变量会话"（GUI 的宿主会话路线）is registered.
+    // 该会话刻意让 **客户端与游戏侧都看 480**（一致性优先），所以凡是"把真 appid
+    // 塞回游戏"的老逻辑（原为 -onlinefix 的 spawn 改写服务）都要在此时让路。
+    bool EnvSessionActive();
+
     // True when this launch asked to keep the real appid for the game's own view
     // (-realappid): the GetAppID flip is off, so appid-carrying outbound requests
     // should use the real appid as well.

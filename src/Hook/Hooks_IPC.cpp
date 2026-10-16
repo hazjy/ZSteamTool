@@ -140,7 +140,8 @@ namespace {
     std::mutex g_IpcProfileMutex;
 
     void ProfileIpcCall(void* pServer, HSteamPipe hSteamPipe, CUtlBuffer* pRead) {
-        if (!Hooks_Misc::IsOnlineFixActive()) return;
+        // 观测：老路线 -onlinefix，以及新的"环境变量会话"（宿主会话）都要看得到调用列表。
+        if (!Hooks_Misc::IsOnlineFixActive() && !Hooks_Misc::EnvSessionActive()) return;
 
         IPCMessages::IPCRequest request{pRead};
         if (!request.ok() || request.command() != EIPCCommand::InterfaceCall) return;
@@ -183,7 +184,7 @@ namespace {
 
     void ProfileResponse(void* pServer, HSteamPipe hSteamPipe,
                          CUtlBuffer* pRead, CUtlBuffer* pWrite, bool callReturned) {
-        if (g_IpcRespBudget == 0 || !Hooks_Misc::IsOnlineFixActive()) return;
+        if (g_IpcRespBudget == 0 || (!Hooks_Misc::IsOnlineFixActive() && !Hooks_Misc::EnvSessionActive())) return;
 
         IPCMessages::IPCRequest request{pRead};
         if (!request.ok() || request.command() != EIPCCommand::InterfaceCall) return;

@@ -379,6 +379,10 @@ namespace Hooks_Misc {
         return g_OnlineFixRealAppId != 0;
     }
 
+    bool EnvSessionActive() {
+        return g_EnvSessionAppId != 0;
+    }
+
     void TrackOnlineFixGameProcess(PID_t pid) {
         // Only the first game process after a -onlinefix launch owns the
         // session; later handshakes belong to children/helpers of that game.

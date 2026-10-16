@@ -30,6 +30,14 @@ namespace {
     //  GetAppID reads and updates the response steamclient pre-filled.
     void HandlerPost_IClientUtils_GetAppID(CPipeClient* pipe, CUtlBuffer* pRead, CUtlBuffer* pWrite)
     {
+        // 环境变量会话（GUI 的宿主会话路线）：这条路线的全部意义就是"会话身份一致"——
+        // 客户端、大厅、P2P 都在 480，**游戏侧也必须看 480**。下面这段"还原真 appid"是给
+        // 老 -onlinefix 路线（spawn 改写 pGameID）用的，在宿主会话里必须让路：否则游戏按
+        // 真 appid 建网络身份，而大厅在 480，连不上。
+        // 实测证据：机械狂欢"房间码加入"报网络连接错误；好友 ipc.log 里正是这条
+        //   `GetAppID: spoof response 480 -> 4108000`
+        if (Hooks_Misc::EnvSessionActive()) return;
+
         // Once P2P is up, leave the session AppId so the socket matches the
         // session cert.
         if (Hooks_Misc::ShouldReportOnlineFixAppId()) return;
