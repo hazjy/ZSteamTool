@@ -27,6 +27,17 @@
   - ② **报文里的 appid 必须与 steamclient 自己的"本次会话 appid"一致**。证据：MMS 的 `#1` 本来由 steamclient 按**启动 appid**（4108000）填入 —— 也就是说**我们的 480/1046930 只是游戏侧视角，steamclient 仍认为这次会话是 4108000**。于是三种情况自洽地给出三种结果：报 4108000（与会话一致但未拥有）→ `AccessDenied`；报 480 / 报 1046930（已拥有但与会话不一致）→ `Fail`。**没有任何一种既是"已拥有"又"与会话一致"**，因为会话 appid 由启动方式（`-applaunch <appid>`）决定，内核只能在 spawn/GetAppID 等游戏侧伪装，改不掉它。
 - 推论（**未实测**）：要过 MMS，需要**让 Steam 侧的会话 appid 本身就是一个已拥有的 appid**（例如不经 `-applaunch 4108000` 启动、而让游戏进程的 pipe appid 直接等于已拥有 appid）。这条没试过，是本主题唯一还值得再验的方向。
 - **连锁后果**（与现场完全吻合）：大厅 ID 恒为 0 → 游戏「复制房间ID」显示 **0** → `SetLobbyData` 返回 false → 「邀请」在 IPC 层 `result=OK` 但**方法返回 false**，界面什么都不弹。
-- 因此**对这类游戏，"入库 + 内核伪装"无法建厅、也就无法邀请**；换任意已拥有的免费 AppID 当会话身份同样受这条限制。适用范围是否限于"steamclient 侧 appid 为真实 appid 且请求带 app 绑定令牌"的游戏，尚未在别的游戏上验证。
+- 因此**对这类游戏，"入库 + 内核伪装"**——在**经 `steam.exe -applaunch` 启动**的那条路上——无法建厅、也就无法邀请（换任意已拥有的免费 AppID 当会话身份同样受这条限制）。**该缺口已于 2026-10-16 11:30 补上，见本节末"已跑通的做法"。**
 - **边界（2026-10-17 补，实样核对过）**：以上只适用于**"仍在使用真 Steam 客户端"**的路线。OLFIX 式补丁能让同类游戏联机，是因为它**在游戏进程内冒充 Steam 客户端那一层**：实样（online-fix 的 Machine Party 补丁）中 `OnlineFix64.dll`（版本信息 "Online-Fix Steamclient"）的导出面就是 `steamclient64.dll` 的（`CreateInterface` / `Steam_*` / `Breakpad_Steam*`），由 `winmm.dll` 早期加载、另配 `SteamOverlay64.dll` 覆盖层桩，**保留原版 `steam_api64.dll` 不动**；配置里同样是 `RealAppId=4108000 / FakeAppId=480`。
-- **重要修正（2026-10-16 晚，实机验证）**：该补丁在本机**开着 Steam 直接启动 `Machine Party.exe`**（**不经 `steam.exe -applaunch`**）后，**建房成功、Steam 邀请好友界面正常弹出**、服务器列表为 480 世界 —— 即**走 Steam 官方通道的 480 联机是通的**。差别只在**会话 appid**：`-applaunch 4108000` 会让 steamclient 把本次会话认成 4108000（于是 MMS 建厅 `#1` 恒为 4108000 → 未拥有 → `AccessDenied`；改写又与会话不一致 → `Fail`），而补丁**不经过 Steam 启动**，会话与游戏侧统一为 480 → 放行。**所以内核路线的缺口不是"Valve 关死"，而是"会话 appid 必须也是 480"**（对应 TODO `待办/04-…` 的重开项）。
+- **重要修正二（2026-10-16 11:17 实测，推翻修正一里的"官方通道"推断）**：把游戏**复制到 Steam 库之外**、用 `OnlineHost`（`SteamAppId/SteamGameId/SteamOverlayGameId=480`）拉起后实测：
+  - **游戏侧**确实按环境变量走 480 —— `GameServers.MasterServerQuery` 的 body 仍是 `08 E0 03`（480）；
+  - 但 **steamclient 仍把该进程认成 4108000** —— `k_EMsgClientMMSCreateLobby` 的 `#1=4108000`、响应 `#3=15 AccessDenied`；同一会话里 `k_EMsgClientGamesPlayedWithDataBlob` 的 `game_id` 也是 4108000（就是 Steam 界面显示"在玩机械狂欢"的来源）。
+  - 结论：MMS 建厅的 appid **由客户端对进程的应用关联决定**，而这份关联**既不是启动 appid 一种来源，也不按库内/库外路径区分**（库外仍是 4108000）。**环境变量只能改变游戏侧视角，改变不了这份关联。**
+- **由此反推补丁的机制（推断，其主体加壳不可读）**：补丁在同一台机器上能邀请成功，而 Steam 客户端对它的进程同样会认成 4108000 —— 若它依赖 Valve 的大厅，就该撞同一道 `AccessDenied`。**所以它的大厅/P2P 只能在游戏进程内自答**（`OnlineFix64.dll` 冒充客户端层 + `SteamOverlay64.dll` 供覆盖层），`FakeAppId=480` 是给游戏侧/自有命名空间用的。也就是说：**它不在"真 Steam 客户端"这条路上**，走的是"进程内替换 Steam 层"（= GUI 侧 GSE/Goldberg 的同类，只是接入点不同）。
+- **对内核的含义**：内核唯一还可能翻盘的一处是**让客户端对这条 pipe 的应用关联也变成 480**（它已经捕获了 `GetAppIDForCurrentPipe`），使 MMS 的 appid 与会话一致 —— 但这属于改客户端内部状态，风险与收益都待实测。
+- **已跑通的做法（2026-10-16 11:30，实测）**：上述那一处**已经做了并且成了**。做法 = **"环境变量会话 + 客户端侧 appid 洗白"，零报文改写**：
+  - 游戏**不经 Steam 启动**（GUI 的 `OnlineHost` 宿主启动器），给游戏进程设 `SteamAppId / SteamGameId / SteamOverlayGameId = 会话身份`（480）→ 内核在 pipe 握手时用 `ProcessInspector` 读到的环境变量登记会话身份（`Hooks_Misc::EngageEnvSession`）；
+  - 内核把 `GetAppIDForCurrentPipe` **从一次性捕获改为真 hook**：当"该 appid 在 lua 里配过（`HasDepot`）"且与会话身份不同时，把客户端内部算出的真 appid 换成会话身份（4108000 → 480）。**只洗客户端内部调用**，内核自身逻辑仍取原始值；
+  - 结果：`MMSCreateLobby #1=480` → 响应 `#3=1（OK）` + 大厅 SteamID `109775241023573114`；`SetLobbyData`/`LobbyData`/`LeaveLobby` 全 `#3=1`；**界面能建房、能弹出 Steam 邀请好友弹窗**（此前恒为"无弹窗、房间 ID=0"）；
+  - 提交：`8755f4e`（钩子）、`e5c3ce2`（出站改写总开关 `kEnableAppIdRewrites=false`，把那批无效改写全部关掉）；
+  - **仍未验证**：对端同配能否加入（闭环最后一环）、以及其它入库游戏上的普适性。适用范围"在别的游戏上验证"这条仍挂着。
