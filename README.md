@@ -75,6 +75,26 @@ ZSteamTool 是一个注入 Steam 客户端的内核（三个 DLL），用来解�
 | `[cloud]` | 可选云存档重定向（需自备 `cloud_redirect.dll`，默认关） |
 | `[remote]` | 自定义元数据镜像（默认走 GitHub + jsDelivr 回退） |
 
+## 可选外部组件：CloudRedirect（云存档重定向）
+
+`[cloud]` 是**可选**功能：需要用户**自备 `cloud_redirect.dll`**（放到 Steam 根目录，见 [`opensteamtool.example.toml`](opensteamtool.example.toml) 的 `[cloud]` 段），默认关闭；本仓库只含自己的宿主 shim（`src/Utils/CloudRedirect/CloudRedirectHost.*`），**不含它的源码**。
+
+**上游已删库**：原作者仓库 `Selectively11/CloudRedirect` 于 **2026-10-16** 删除（API 404），作者不可达。出处与维护现状：
+
+| 用途 | 位置 |
+|---|---|
+| **维护仓库（改动在此）** | <https://github.com/hazjy/CloudRedirect> |
+| 保真参照（源码 = 上游最终版 v2.6.5，代码零改动） | <https://github.com/huanyuejue/CloudRedirect> —— 引用保真源码请用提交 **`bc5e38a`**；**别用它的 `v2.6.5` tag**（那指向该分支自己的 CI 提交） |
+| 永久归档 | Software Heritage（最近一次完整抓取 2026-08-20）：<https://archive.softwareheritage.org/browse/origin/?origin_url=https%3A%2F%2Fgithub.com%2FSelectively11%2FCloudRedirect> |
+| 本机克隆 | `RefProjects/2-挂起/CloudRedirect`（`origin` = 维护仓库；`preservation` = 保真参照） |
+
+两点注意：
+
+- 它的实现**按特征码 hook `steamclient64.dll`**，Steam 客户端大更新后可能失效；原作者不会再有修复 → 需**用上面的源码自行构建**（MIT 许可，`cmake -B build -G "Visual Studio 17 2022" -A x64` → `build/Release/cloud_redirect.dll`）。
+- 本机在用的那份 `cloud_redirect.dll` 是**他人魔改版**（把重定向改到创意工坊实现），**不是原版**；要原版行为请自行构建，别拿它当原版参照。
+
+许可证与版权归属见 [`NOTICE`](NOTICE)。
+
 ## 构建
 
 **要求**：Windows 10/11、CMake 3.20+、Visual Studio（MSVC x64）。部分环境需要显式指定工具集，例如 VS 18 用 `v145`。
