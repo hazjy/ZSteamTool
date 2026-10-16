@@ -40,11 +40,13 @@ ZSteamTool — 版权与第三方归属声明
     本仓库只包含自己的宿主 shim（src/Utils/CloudRedirect/CloudRedirectHost.*），不含其源码。
     上游状况：原作者仓库（github.com/Selectively11/CloudRedirect）已于 2026-10-16 删除，
     作者不可达；现存出处：
-      · 保留分支（社区维护，含 v2.6.5 完整源码与构建说明）：github.com/huanyuejue/CloudRedirect
+      · 本机保留克隆（社区维持，源码=上游最终版 v2.6.5，代码零改动）：RefProjects/2-挂起/CloudRedirect
+        引用保真源码请用提交 bc5e38a（该 fork 的 v2.6.5 tag 指向其自身 CI 提交，勿当上游 tag）
+      · 远端：github.com/huanyuejue/CloudRedirect
       · 永久归档（Software Heritage，最近一次完整抓取 2026-08-20）：
         archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/Selectively11/CloudRedirect
     本机已存档的运行件与出处记录：_archive/20261016-CloudRedirect-删库存档/
-    注：其实现依赖对 steamclient64.dll 的特征码扫描，Steam 客户端大更新后可能失效，需自行重建。
+    注：其实现依赖对 steamclient64.dll 的特征码扫描，Steam 客户端大更新后可能失效，需由该源码自行重建。
 
 四、免责声明
 ------------
