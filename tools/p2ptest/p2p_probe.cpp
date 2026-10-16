@@ -11,6 +11,7 @@
 //
 // 依赖：steam_api64.dll（放在本程序同目录，或用 --api 指定路径）、Steam 客户端在运行。
 #include <windows.h>
+#include <tlhelp32.h>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -29,7 +30,7 @@ typedef bool (__cdecl *AcceptFn)(void*, unsigned int);
 
 // 探针自身修订号：**每次改动必须递增**，同时包名也带同一个号
 // （规则：改一次、名字就要能区分一次，避免"这包是哪个版本"的扯皮）
-static const int kProbeRev = 6;
+static const int kProbeRev = 7;
 
 static int real_main(int argc, char** argv);
 
@@ -40,6 +41,36 @@ int main(int argc, char** argv)
     printf("\n[结束] 退出码=%d。按回车键关闭窗口...", rc);
     (void)getchar();
     return rc;
+}
+
+// Steam 客户端在不在跑（只看进程名，够用）
+static bool IsSteamRunning()
+{
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return true;   // 查不了就别乱报
+    PROCESSENTRY32 pe; ZeroMemory(&pe, sizeof(pe)); pe.dwSize = sizeof(pe);
+    bool found = false;
+    if (Process32First(snap, &pe)) {
+        do {
+            if (_stricmp(pe.szExeFile, "steam.exe") == 0) { found = true; break; }
+        } while (Process32Next(snap, &pe));
+    }
+    CloseHandle(snap);
+    return found;
+}
+
+// 除了环境变量，再写一份 steam_appid.txt —— 独立进程（非 Steam 启动）里更稳
+static void WriteAppIdFile(const char* appId)
+{
+    char exePath[MAX_PATH]; ZeroMemory(exePath, sizeof(exePath));
+    if (!GetModuleFileNameA(NULL, exePath, MAX_PATH)) return;
+    char* slash = strrchr(exePath, '\\');
+    if (!slash) return;
+    *(slash + 1) = 0;
+    char file[MAX_PATH];
+    sprintf(file, "%ssteam_appid.txt", exePath);
+    FILE* f = fopen(file, "wb");
+    if (f) { fputs(appId, f); fclose(f); printf("[1c] 已写 %s（内容 %s）\n", file, appId); }
 }
 
 static void* g_pS = nullptr;
@@ -89,6 +120,8 @@ static void __cdecl OnConnStatus(void* pInfo)
 static int real_main(int argc, char** argv)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
+    SetConsoleOutputCP(CP_UTF8);     // 中文输出用 UTF-8 代码页，避免控制台乱码
+    SetConsoleCP(CP_UTF8);
 
     const char* mode = (argc > 1) ? argv[1] : nullptr;
     if (!mode || (strcmp(mode, "listen") != 0 && strcmp(mode, "connect") != 0 && strcmp(mode, "pop") != 0)) {
@@ -124,12 +157,22 @@ static int real_main(int argc, char** argv)
     SetEnvironmentVariableA("SteamGameId", appidBuf);
     SetEnvironmentVariableA("SteamOverlayGameId", appidBuf);
     printf("[1b] 已设置 SteamAppId/SteamGameId/SteamOverlayGameId = %s\n", appidBuf);
+    WriteAppIdFile(appidBuf);
+
+    if (!IsSteamRunning())
+        puts("[!] 没检测到 steam.exe —— 请先启动 Steam 并登录，再跑本程序（装内核时退过 Steam 的话尤其注意）");
 
     HMODULE api = LoadLibraryA(apiPath);
     if (!api) { printf("[2] LoadLibrary(%s) failed, err=%lu\n", apiPath, GetLastError()); return 2; }
 
     InitFn init = (InitFn)GetProcAddress(api, "SteamAPI_InitSafe");
-    if (!init || !init()) { puts("[2] SteamAPI_InitSafe failed (Steam 在跑吗？appid 与账号匹配吗？)"); return 3; }
+    if (!init || !init()) {
+        puts("[2] SteamAPI_InitSafe 失败。逐个排查：\n"
+             "      1) Steam 是否已启动并登录（上面那行 [!] 有没有报）；\n"
+             "      2) 本程序同目录是否有 steam_api64.dll；\n"
+             "      3) 试过重启 Steam 后再跑一次。");
+        return 3;
+    }
     puts("[2] SteamAPI_InitSafe ok");
 
     AccFn aS = (AccFn)GetProcAddress(api, "SteamAPI_SteamNetworkingSockets_SteamAPI_v012");
