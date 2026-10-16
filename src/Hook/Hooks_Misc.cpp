@@ -26,6 +26,43 @@ namespace {
     // 仅当该 appid 是本机 lua 配过的游戏（`HasDepot`）且与游戏进程环境变量给的会话
     // 身份不同时才生效，把影响面压到最小。
     AppId_t g_EnvSessionAppId = 0;   // 游戏进程环境变量指定的会话身份（OnlineHost 会设成 480）
+    PID_t   g_EnvSessionPid   = 0;   // 该会话所属的游戏进程（退出即清，见看门狗）
+    uint64  g_EnvSessionCreation = 0;
+    std::atomic<bool> g_EnvSessionWatcherStop{false};
+
+    // 清掉环境变量会话（进程退出时调用）。
+    void ResetEnvSession(const char* reason) {
+        if (g_EnvSessionAppId == 0) return;
+        LOG_MISC_INFO("env session cleared ({}): pid={}, session appid {} -> 0",
+                      reason, g_EnvSessionPid, g_EnvSessionAppId);
+        g_EnvSessionAppId = 0;
+        g_EnvSessionPid = 0;
+        g_EnvSessionCreation = 0;
+    }
+
+    // 与 StartOnlineFixGameWatcher 同一套路：拿"进程还活着时"的句柄等待退出信号 ——
+    // 不能靠"pid 还在不在"判断（已终止未回收的进程照样应答），句柄还能免疫 pid 复用。
+    void StartEnvSessionWatcher(PID_t pid) {
+        HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
+        if (!process) {
+            LOG_MISC_WARN("env session: OpenProcess(SYNCHRONIZE) failed for pid={} (error={}); "
+                          "state will only be dropped on the next env-session launch",
+                          pid, GetLastError());
+            return;
+        }
+        std::thread([pid, process] {
+            for (;;) {
+                const DWORD wait = WaitForSingleObject(process, 1000);
+                if (wait == WAIT_OBJECT_0) {
+                    if (g_EnvSessionPid == pid) ResetEnvSession("game process exited");
+                    break;
+                }
+                if (wait != WAIT_TIMEOUT) break;
+                if (g_EnvSessionWatcherStop || g_EnvSessionPid != pid) break;
+            }
+            CloseHandle(process);
+        }).detach();
+    }
 
     // Assumes one game at a time.  Set by SpawnProcess VEH when -onlinefix
     // is detected; cleared when a non-onlinefix game launches, or when the
@@ -263,16 +300,29 @@ namespace Hooks_Misc {
     // 登记"环境变量会话"：游戏进程的 SteamAppId 环境变量给出了会话身份（OnlineHost 式
     // 启动会带上），而客户端内部仍会把这个进程算成真 appid —— 洗白需要知道会话身份，
     // 由 PipeManager 在握手时喂进来。
-    void EngageEnvSession(PID_t /*pid*/, AppId_t envAppId) {
-        if (g_EnvSessionAppId != 0) return;
+    void EngageEnvSession(PID_t pid, uint64 creationTime, AppId_t envAppId) {
+        if (!Config::GetOnlinefixEnvSession()) return;      // [onlinefix] env_session=false → 不启用
         if (envAppId == 0 || envAppId == k_uAppIdInvalid) return;
+        if (pid == 0) return;
+        // 幂等：同一个进程的同一次会话不重复登记。
+        if (g_EnvSessionPid == pid && g_EnvSessionCreation == creationTime
+            && g_EnvSessionAppId == envAppId) return;
+
+        // 换了进程 = 新会话：把旧的换掉（旧看门狗会自行退出）。
+        if (g_EnvSessionAppId != 0 && g_EnvSessionPid != pid)
+            LOG_MISC_INFO("env session: re-armed for pid={} (was pid={})", pid, g_EnvSessionPid);
+
+        g_EnvSessionPid = pid;
+        g_EnvSessionCreation = creationTime;
         g_EnvSessionAppId = envAppId;
-        LOG_MISC_INFO("env session armed: session appid = {}", envAppId);
+        StartEnvSessionWatcher(pid);
+        LOG_MISC_INFO("env session armed: session appid = {} (pid={})", envAppId, pid);
     }
 
     AppId_t GetAppIDForCurrentPipeWrap() {
+        // 启动瞬间（hook 还没拿到 engine 指针）会走到这里；这是正常时序，不必告警。
         if (!oGetAppIDForCurrentPipe || !g_steamEngine) {
-            LOG_MISC_WARN("GetAppIDForCurrentPipeWrap called before hook captured the engine — returning 0");
+            LOG_MISC_TRACE("GetAppIDForCurrentPipeWrap: engine not captured yet — returning 0");
             return 0;
         }
         const AppId_t appid = oGetAppIDForCurrentPipe(g_steamEngine);   // 原始值（不洗白）

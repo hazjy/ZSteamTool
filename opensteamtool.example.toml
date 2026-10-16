@@ -121,3 +121,17 @@ mode = "normal"
 #
 # url_template = "https://your.server/{channel}/{component}/{sha256}.toml"
 # url_template = "https://fast.jsdelivr.net/gh/OpenSteam001/steam-monitor@{channel}/{component}/{sha256}.toml"
+
+[onlinefix]
+# 环境变量会话（GUI「联机」页的宿主启动路线：OnlineHost 给游戏进程设
+# SteamAppId / SteamGameId / SteamOverlayGameId = 会话身份，且不经 Steam 启动）。
+#
+#   true（默认）— 内核按该会话身份工作：把客户端内部对这个进程的 appid 判断洗成
+#       会话身份，使「建大厅」等由客户端填写 appid 的报文与会话一致（否则入库游戏
+#       会带着真 appid 去建厅，被 Valve 判 AccessDenied → 房间 ID 恒为 0、邀请无弹窗）。
+#       只在"该 appid 在本机 lua 里配过 + 会话身份与真 appid 不同"时生效；
+#       从 Steam 库直接启动（普通启动）不会触发，可放心保持默认。
+#   false — 关闭该行为。**只建议在排查问题时使用**（想排除内核因素），关掉后只剩
+#       原有的 `-onlinefix` 命令行路线，那条路拿不到 Steam 大厅。
+#
+# env_session = true

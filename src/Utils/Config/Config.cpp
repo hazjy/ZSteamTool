@@ -22,6 +22,7 @@ namespace {
         std::vector<InjectDll> injectDlls;
         CloudSettings cloud;
         DenuvoMode denuvoMode = DenuvoMode::Normal;
+        bool onlinefixEnvSession = true;
     };
 
     std::mutex g_mutex;
@@ -60,6 +61,7 @@ namespace {
         cloudEnabled           = snapshot.cloud.enabled;
         cloudLibrary           = snapshot.cloud.library;
         denuvoMode             = snapshot.denuvoMode;
+        onlinefixEnvSession    = snapshot.onlinefixEnvSession;
     }
 
     const char* ToString(DenuvoMode mode) {
@@ -226,6 +228,12 @@ namespace {
                 }
             }
 
+            // [onlinefix]
+            if (auto onlinefix = tbl["onlinefix"].as_table()) {
+                if (auto val = (*onlinefix)["env_session"].value<bool>())
+                    snapshot.onlinefixEnvSession = *val;
+            }
+
             ApplyManifestProvider(snapshot.manifestProvider);
             LoadResult result = ApplySnapshotLocked(snapshot);
             LOG_INFO("Config loaded: manifest.url={} log.level={} lua.paths={} stats.enable_api={} remote.url_templates={} denuvo.mode={}",
@@ -305,6 +313,11 @@ namespace {
             cloudEnabled,
             cloudLibrary,
         };
+    }
+
+    bool GetOnlinefixEnvSession() {
+        std::lock_guard lock(g_mutex);
+        return onlinefixEnvSession;
     }
 
     DenuvoMode GetDenuvoMode() {

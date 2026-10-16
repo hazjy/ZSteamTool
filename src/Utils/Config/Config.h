@@ -56,6 +56,7 @@ namespace Config {
     std::vector<std::string> GetRemoteUrlTemplates();
     CloudSettings GetCloudSettings();
     DenuvoMode GetDenuvoMode();
+    bool GetOnlinefixEnvSession();
     bool GetStatsEnableApi();
     bool GetUpdateEnabled();
 
@@ -92,5 +93,16 @@ namespace Config {
 
     // [denuvo] - SteamID identity mode (see DenuvoMode above).
     inline DenuvoMode denuvoMode = DenuvoMode::Normal;
+
+    // [onlinefix] — 环境变量会话（GUI 的 OnlineHost 宿主启动路线）。
+    //   true（默认）= 允许内核按"游戏进程环境变量里的会话身份"工作：`SteamAppId/
+    //   SteamGameId/SteamOverlayGameId` 给出会话身份（如 480）时，内核把客户端内部
+    //   对该进程的 appid 判断洗成会话身份，使 MMS 建厅等由客户端填 appid 的报文与会话
+    //   一致（2026-10-16 实测：建厅由 `#3=15 AccessDenied` 变为 `#3=1（OK）`，邀请弹窗
+    //   正常）。只在"该 appid 在 lua 里配过 + 会话身份与真 appid 不同"时生效，普通启动
+    //   （Steam 库点开始）不会触发。
+    //   false = 关闭该行为；**仅供排查**（想排除内核因素时用它），关掉后只保留原有的
+    //   `-onlinefix` 命令行路线（那条路拿不到 Valve 大厅）。
+    inline bool onlinefixEnvSession = true;
 
 }
