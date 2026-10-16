@@ -10,6 +10,7 @@ if not exist "%VCVARS%" (
 call "%VCVARS%" >nul 2>&1
 set OUT=%~dp0..\..\build\p2ptest
 if not exist "%OUT%" mkdir "%OUT%"
-cl /nologo /utf-8 /O2 /EHsc "%~dp0p2p_probe.cpp" /Fe:"%OUT%\p2p_probe.exe" /Fo:"%OUT%\"
+cd /d "%OUT%"
+cl /nologo /utf-8 /O2 /EHsc "%~dp0p2p_probe.cpp" /Fe:"%OUT%\p2p_probe.exe"
 if errorlevel 1 exit /b 1
 echo [ok] %OUT%\p2p_probe.exe
