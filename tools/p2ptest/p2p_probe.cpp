@@ -99,6 +99,16 @@ int main(int argc, char** argv)
 
     printf("[1] mode=%s virtualPort=%d appid=%llu seconds=%d api=%s\n", mode, vport, appid, seconds, apiPath);
 
+    // 自己把会话身份写进环境变量（steam_api 在 Init 时读它）。不设的话，
+    // 直接双击运行会因为没有 appid 而初始化失败 —— 这也是本探针要"自带身份"的原因：
+    // 它必须在和游戏同一种启动方式下测（环境变量会话），而不是依赖外面先设好。
+    char appidBuf[32];
+    sprintf(appidBuf, "%llu", appid);
+    SetEnvironmentVariableA("SteamAppId", appidBuf);
+    SetEnvironmentVariableA("SteamGameId", appidBuf);
+    SetEnvironmentVariableA("SteamOverlayGameId", appidBuf);
+    printf("[1b] 已设置 SteamAppId/SteamGameId/SteamOverlayGameId = %s\n", appidBuf);
+
     HMODULE api = LoadLibraryA(apiPath);
     if (!api) { printf("[2] LoadLibrary(%s) failed, err=%lu\n", apiPath, GetLastError()); return 2; }
 
