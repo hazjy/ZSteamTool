@@ -30,7 +30,7 @@ typedef bool (__cdecl *AcceptFn)(void*, unsigned int);
 
 // 探针自身修订号：**每次改动必须递增**，同时包名也带同一个号
 // （规则：改一次、名字就要能区分一次，避免"这包是哪个版本"的扯皮）
-static const int kProbeRev = 7;
+static const int kProbeRev = 8;
 
 static int real_main(int argc, char** argv);
 
@@ -159,18 +159,16 @@ static int real_main(int argc, char** argv)
     printf("[1b] 已设置 SteamAppId/SteamGameId/SteamOverlayGameId = %s\n", appidBuf);
     WriteAppIdFile(appidBuf);
 
-    if (!IsSteamRunning())
-        puts("[!] 没检测到 steam.exe —— 请先启动 Steam 并登录，再跑本程序（装内核时退过 Steam 的话尤其注意）");
-
     HMODULE api = LoadLibraryA(apiPath);
     if (!api) { printf("[2] LoadLibrary(%s) failed, err=%lu\n", apiPath, GetLastError()); return 2; }
 
     InitFn init = (InitFn)GetProcAddress(api, "SteamAPI_InitSafe");
     if (!init || !init()) {
         puts("[2] SteamAPI_InitSafe 失败。逐个排查：\n"
-             "      1) Steam 是否已启动并登录（上面那行 [!] 有没有报）；\n"
+             "      1) Steam 是否已启动并登录（装内核那步退过 Steam，最容易忘的就是重新开）；\n"
              "      2) 本程序同目录是否有 steam_api64.dll；\n"
-             "      3) 试过重启 Steam 后再跑一次。");
+             "      3) 重启 Steam 后再跑一次。");
+        printf("      参考：本次是否看到 steam.exe = %s\n", IsSteamRunning() ? "是" : "否");
         return 3;
     }
     puts("[2] SteamAPI_InitSafe ok");
