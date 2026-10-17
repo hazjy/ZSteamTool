@@ -77,7 +77,7 @@ netpacket.log MMS dump … CreateLobby(6601) #1=… / CreateLobbyResponse(6602) 
 
 - **三件套**：`OpenSteamTool.dll` + `dwmapi.dll` + `xinput1_4.dll` → `<Steam>\`（GUI 的「内核」页可装；手工拷贝等价）。
 - **部署 Debug**（带日志，联机诊断必需）；Release 只用来保证"Release 也编得过"。
-- **部署件**：日常用 Release 构建（`发布包\测试版\ZSteamTool-v1.1.4+联机修复-20261017-r1.zip`，`E8605AB67011B6C5…`）；需要日志排查时改用 `build\Debug` 的同名三件套。
+- **部署件**：日常用 Release 构建（`发布包\测试版\ZSteamTool-v1.1.4+联机修复-20261017-r2.zip`，`4B9B789DE355…`）；需要日志排查时改用 `build\Debug` 的同名三件套。
 - **回滚**：重新构建，或从发布包取对应版本（回滚前先退出 Steam）。**备份是可选的省事手段**——预计还要反复回退/对照时，在 `内核备份\<日期>-<主题>\` 存一份三件套即可（省去每次重编，一次几分钟）；确认用不上就删。
 
 ## 5. 已知边界（别当 bug 查）
@@ -85,5 +85,5 @@ netpacket.log MMS dump … CreateLobby(6601) #1=… / CreateLobbyResponse(6602) 
 - 垫片**按文件名**认 Steam：宿主 exe 不叫 `steam.exe` 就永不注入（Steam 照常跑、游戏全不解锁）——想支持改名要改成按目录/签名识别。
 - 同一 Steam 进程内可重挂会话，但**同一时间只支持一个会话游戏**（沿用内核原有"一次一个"的假设）。
 - 宿主进程与游戏进程在 Steam 侧是**两条独立记录**（480 与真 appid）：UI 显示真名、大厅走 480，属预期。
-- 签名表取表时 `RemoteToml … mirror failed` 是**多镜像回退的正常噪声**（本机实测：前 4 个镜像不通、第 5 个 `git.lua.tools` 通，表照常加载并写缓存）；真正"取不到"才会弹 `Unsupported Steam Version` / `Missing Signatures` 窗。
+- 签名表取表（2026-10-17 起）：**缓存优先**——表按客户端 DLL 的 SHA-256 缓存，命中就零网络、日志只有 `cache hit … skipping network`；只有客户端更新/首装/开了 `[remote] force_refresh` 才走镜像链。镜像链首个源是 `git.lua.tools`（唯一在更新的镜像），单个镜像失败降为 DEBUG，**只有整链全失败才有一条 WARN**；真正"取不到表"才会弹 `Unsupported Steam Version` / `Missing Signatures` 窗。
 - 出站报文改写路线**已被实测否掉**（MMS 建厅改 480/1046930 都得 `Fail`；服务器查询改真 appid 反而列表变空），相关代码仅留观测，行为默认关闭。
