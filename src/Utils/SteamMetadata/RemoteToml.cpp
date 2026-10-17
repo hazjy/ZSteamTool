@@ -16,12 +16,15 @@ namespace RemoteToml {
 namespace {
     // Built-in mirror chain, tried in order. Used when [remote] url_template is unset.
     // Mirrors are independent repos/hosts (not just CDN copies of one repo).
+    // Order matters: the first entry is the one that actually resolves today, and every
+    // component pays the timeout of each dead mirror ahead of it. Keep a source that is
+    // confirmed reachable first; the rest stay as fallbacks.
     constexpr const char* kDefaultTemplates[] = {
+        "https://git.lua.tools/luatools/steam-monitor/raw/branch/{channel}/{component}/{sha256}.toml",
         "https://raw.githubusercontent.com/OpenSteam001/steam-monitor/{channel}/{component}/{sha256}.toml",
         "https://cdn.jsdelivr.net/gh/OpenSteam001/steam-monitor@{channel}/{component}/{sha256}.toml",
         "https://raw.githubusercontent.com/madoiscool/steam-monitor/{channel}/{component}/{sha256}.toml",
         "https://cdn.jsdelivr.net/gh/madoiscool/steam-monitor@{channel}/{component}/{sha256}.toml",
-        "https://git.lua.tools/luatools/steam-monitor/raw/branch/{channel}/{component}/{sha256}.toml",
     };
 
     static bool HasPlaceholder(std::string_view text, std::string_view placeholder)
@@ -110,7 +113,35 @@ Result Fetch(const Request& request)
                  request.channel, request.component, cacheDir.string(), mkdirEc.message());
     }
 
-    // 3. Try remote (mirror chain with early-out on 404).
+    // 3. Cache first. The URL carries the DLL's SHA-256, so the cache is content-addressed
+    //    and a cached table for this exact hash is equivalent to the remote one. Hitting it
+    //    skips the whole mirror chain — which used to cost 49-76 s per Steam start because
+    //    two dead mirrors each burn a full HTTP timeout, per component, every time.
+    //    Network is only needed when the hash changes (client update), on first install,
+    //    or when [remote] force_refresh is set.
+    const bool forceRefresh = Config::GetRemoteForceRefresh();
+    if (!forceRefresh && fs::exists(cachePath)) {
+        std::ifstream ifs(cachePath, std::ios::binary);
+        if (ifs) {
+            std::string cached((std::istreambuf_iterator<char>(ifs)),
+                                std::istreambuf_iterator<char>());
+            if (!cached.empty()) {
+                LOG_INFO("RemoteToml({}/{}): cache hit {} ({} bytes), skipping network",
+                         request.channel, request.component, cachePathText, cached.size());
+                out.body = std::move(cached);
+                out.ok = true;
+                out.fromCache = true;
+                return out;
+            }
+            LOG_WARN("RemoteToml({}/{}): cache file is empty, refetching: {}",
+                     request.channel, request.component, cachePathText);
+        } else {
+            LOG_WARN("RemoteToml({}/{}): cache file unreadable, refetching: {}",
+                     request.channel, request.component, cachePathText);
+        }
+    }
+
+    // 4. Try remote (mirror chain; a non-200 on one mirror falls through to the next).
     const std::vector<std::string> urlTemplates = BuildUrlTemplates();
     OSTPlatform::Http::Result http;
     std::string lastUrl;
@@ -127,34 +158,50 @@ Result Fetch(const Request& request)
 
         // Mirrors are independent repos with possibly different coverage, so a 404
         // (or any non-200) on one does NOT imply the others lack the file — always
-        // fall through to the next mirror.
-        if (i + 1 < urlTemplates.size()) {
-            LOG_WARN("RemoteToml({}/{}): mirror failed ({} ok={} HTTP={}), trying next",
-                     request.channel, request.component, lastUrl, http.ok, http.status);
-        } else {
-            LOG_WARN("RemoteToml({}/{}): mirror failed ({} ok={} HTTP={}), no more mirrors",
-                     request.channel, request.component, lastUrl, http.ok, http.status);
-        }
+        // fall through to the next mirror. A miss on one mirror is normal operation
+        // (the built-in chain has sources that are known stale), so it is DEBUG here
+        // and only the whole-chain failure below is a WARN.
+        LOG_DEBUG("RemoteToml({}/{}): mirror #{} failed ({} ok={} HTTP={}), trying next",
+                  request.channel, request.component, i + 1, lastUrl, http.ok, http.status);
     }
 
-    // 4. Remote OK → write cache, return body.
-    if (http.ok && http.status == 200 && !http.body.empty()) {
-        std::ofstream ofs(cachePath, std::ios::binary);
+    const bool remoteOk = http.ok && http.status == 200 && !http.body.empty();
+    if (!remoteOk) {
+        LOG_WARN("RemoteToml({}/{}): all {} mirror(s) failed (last {} ok={} HTTP={})",
+                 request.channel, request.component, urlTemplates.size(),
+                 lastUrl.empty() ? "<none>" : lastUrl, http.ok, http.status);
+    }
+
+    // 5. Remote OK → write cache atomically (tmp + rename), return body.
+    if (remoteOk) {
+        const std::string tmpPathText = cachePathText + ".tmp";
+        std::ofstream ofs(tmpPathText, std::ios::binary | std::ios::trunc);
         if (ofs) {
             ofs.write(http.body.data(),
                       static_cast<std::streamsize>(http.body.size()));
-            LOG_INFO("RemoteToml({}/{}): cached to {}",
-                     request.channel, request.component, cachePathText);
+            ofs.close();
+            // Windows 上 rename 不覆盖已存在的文件，先删再改；失败时保留旧缓存。
+            std::error_code ec;
+            fs::remove(cachePath, ec);
+            ec.clear();
+            fs::rename(tmpPathText, cachePath, ec);
+            if (ec) {
+                LOG_WARN("RemoteToml({}/{}): could not move {} into place ({})",
+                         request.channel, request.component, tmpPathText, ec.message());
+            } else {
+                LOG_INFO("RemoteToml({}/{}): cached to {} ({} bytes)",
+                         request.channel, request.component, cachePathText, http.body.size());
+            }
         } else {
             LOG_WARN("RemoteToml({}/{}): could not open {} for writing",
-                     request.channel, request.component, cachePathText);
+                     request.channel, request.component, tmpPathText);
         }
         out.body = std::move(http.body);
         out.ok = true;
         return out;
     }
 
-    // 5. Remote failed → fall back to whatever is cached for this exact SHA.
+    // 6. Remote failed → fall back to whatever is cached for this exact SHA.
     if (fs::exists(cachePath)) {
         LOG_WARN("RemoteToml({}/{}): remote failed (last URL {} HTTP {}); "
                  "falling back to local cache {}",

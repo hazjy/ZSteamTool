@@ -54,6 +54,8 @@ namespace Config {
     std::string GetLogDir();
     std::vector<std::string> GetLuaPaths();
     std::vector<std::string> GetRemoteUrlTemplates();
+    // [remote] force_refresh：跳过"缓存优先"，强制走镜像链（正常不需要开）。
+    bool GetRemoteForceRefresh();
     CloudSettings GetCloudSettings();
     DenuvoMode GetDenuvoMode();
     bool GetOnlinefixEnvSession();
@@ -77,6 +79,11 @@ namespace Config {
 
     // [remote] — one or more mirror templates, tried in order. Empty = built-in defaults.
     inline std::vector<std::string> remoteUrlTemplates;
+
+    // [remote] force_refresh — bypass the cache-first short-circuit and hit the mirrors.
+    // Off by default: the cache key is the DLL's SHA-256 (content-addressed), so a cached
+    // table for the same hash is equivalent to the remote one.
+    inline bool remoteForceRefresh = false;
 
     // [stats]
     inline bool statsEnableApi = true;

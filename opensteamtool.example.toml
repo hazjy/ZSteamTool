@@ -115,12 +115,17 @@ enabled = false
 mode = "normal"
 
 [remote]
-# Optional metadata mirror. Leave unset to use GitHub with jsDelivr fallback.
+# Optional metadata mirror. Leave unset to use the built-in mirror chain.
 # A custom mirror replaces the built-in remote sources and must include all
 # three placeholders: {channel}, {component}, and {sha256}.
 #
 # url_template = "https://your.server/{channel}/{component}/{sha256}.toml"
 # url_template = "https://fast.jsdelivr.net/gh/OpenSteam001/steam-monitor@{channel}/{component}/{sha256}.toml"
+#
+# 缓存优先：签名表按客户端 DLL 的 SHA-256 命名（内容寻址），同哈希的本地缓存与远端
+# 内容等价 —— 命中缓存时内核不再联网，只有换客户端（哈希变化）、首次安装时才取表。
+# 需要强制刷新（例如怀疑缓存被改坏）时把下面这行打开，取完记得关掉。
+# force_refresh = false
 
 [onlinefix]
 # 环境变量会话（GUI「联机」页的宿主启动路线：OnlineHost 给游戏进程设

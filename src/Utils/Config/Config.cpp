@@ -17,6 +17,7 @@ namespace {
         std::string logDir;
         std::vector<std::string> luaPaths;
         std::vector<std::string> remoteUrlTemplates;
+        bool remoteForceRefresh = false;
         bool statsEnableApi = true;
         bool updateEnabled = true;
         std::vector<InjectDll> injectDlls;
@@ -55,6 +56,7 @@ namespace {
         logDir                 = snapshot.logDir;
         luaPaths               = snapshot.luaPaths;
         remoteUrlTemplates     = snapshot.remoteUrlTemplates;
+        remoteForceRefresh     = snapshot.remoteForceRefresh;
         statsEnableApi         = snapshot.statsEnableApi;
         updateEnabled          = snapshot.updateEnabled;
         injectDlls             = snapshot.injectDlls;
@@ -166,6 +168,10 @@ namespace {
                     }
                 } else if (auto val = (*remote)["url_template"].value<std::string>()) {
                     snapshot.remoteUrlTemplates.push_back(*val);
+                }
+                // 缓存优先的逃生口：为 true 时不读缓存、强制走镜像链。
+                if (auto val = (*remote)["force_refresh"].value<bool>()) {
+                    snapshot.remoteForceRefresh = *val;
                 }
             }
 
@@ -295,6 +301,11 @@ namespace {
     std::vector<std::string> GetRemoteUrlTemplates() {
         std::lock_guard lock(g_mutex);
         return remoteUrlTemplates;
+    }
+
+    bool GetRemoteForceRefresh() {
+        std::lock_guard lock(g_mutex);
+        return remoteForceRefresh;
     }
 
     bool GetStatsEnableApi() {
