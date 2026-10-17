@@ -41,5 +41,5 @@
   - 游戏**不经 Steam 启动**（GUI 的 `OnlineHost` 宿主启动器），给游戏进程设 `SteamAppId / SteamGameId / SteamOverlayGameId = 会话身份`（480）→ 内核在 pipe 握手时用 `ProcessInspector` 读到的环境变量登记会话身份（`Hooks_Misc::EngageEnvSession`）；
   - 内核把 `GetAppIDForCurrentPipe` **从一次性捕获改为真 hook**：当"该 appid 在 lua 里配过（`HasDepot`）"且与会话身份不同时，把客户端内部算出的真 appid 换成会话身份（4108000 → 480）。**只洗客户端内部调用**，内核自身逻辑仍取原始值；
   - 结果：`MMSCreateLobby #1=480` → 响应 `#3=1（OK）` + 大厅 SteamID `109775241023573114`；`SetLobbyData`/`LobbyData`/`LeaveLobby` 全 `#3=1`；**界面能建房、能弹出 Steam 邀请好友弹窗**（此前恒为"无弹窗、房间 ID=0"）；
-  - 提交：`8755f4e`（钩子）、`e5c3ce2`（出站改写总开关 `kEnableAppIdRewrites=false`，把那批无效改写全部关掉）；
+  - 提交：`8755f4e`（钩子）、`e5c3ce2`（出站改写总开关，把那批无效改写全部关掉；2026-10-17 那批改写代码已删除，只留 `IClientRemoteStorage` 首参数一处未验证的改写，默认关）；
   - **仍未验证**：对端同配能否加入（闭环最后一环）、以及其它入库游戏上的普适性。适用范围"在别的游戏上验证"这条仍挂着。

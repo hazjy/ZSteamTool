@@ -60,7 +60,7 @@
 
 - 建房成功：`MMS CreateLobby(6601) #1=480` → `CreateLobbyResponse(6602)` 带大厅 SteamID（11:30 `109775241059253359`、20:38 `109775241059920251`、23:46 `109775241083874096`）→ 随后 `SetLobbyData` / `LobbyData` / `LeaveLobby` 全 `#3=1`。
 - 界面：**建房成功且 Steam 邀请好友弹窗正常出现**（但邀请链接本身不可用，见上）；服务器列表是 480 世界。
-- **零报文改写**（`kEnableAppIdRewrites=false` 后，`MMS appid rewrite` 行数 0）。
+- **零报文改写**（当时靠 `kEnableAppIdRewrites=false` 关掉；2026-10-17 那批改写代码已删除，`MMS appid rewrite` 行数 0 成为编译期事实）。
 - 会话生命周期：`armed(宿主) → re-armed(游戏) → cleared(退出)` 三行齐 ✓。
 - 早期几轮 `misc/netpacket/ipc/pipe/onlinefix` 的 warning+error 合计 0。
 
