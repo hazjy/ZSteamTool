@@ -73,7 +73,7 @@ ZSteamTool 是一个注入 Steam 客户端的内核（三个 DLL），用来解�
 | `[lua] paths` | Lua 配置目录；**非空时只扫描这里**（GUI 改「Lua 路径」会自动写入本行并热重载），留空则用默认 `<Steam>\config\lua` |
 | `[inject]` | 可选的游戏进程注入（默认关） |
 | `[cloud]` | 可选云存档重定向（需自备 `cloud_redirect.dll`，默认关） |
-| `[remote]` | 自定义元数据镜像（默认走 GitHub + jsDelivr 回退） |
+| `[remote]` | 自定义元数据镜像（默认走内置镜像链：`git.lua.tools` 优先，另有 GitHub / jsDelivr 兜底；表按 DLL 哈希缓存，命中不联网） |
 
 ## 可选外部组件：CloudRedirect（云存档重定向）
 
@@ -106,7 +106,7 @@ set TOOLSET=v145 && build.bat      # 指定 MSVC 工具集（生成器为 Visual
 
 产物：`build\Release\` 与 `build\Debug\` 下各三个 DLL（`OpenSteamTool.dll`、`dwmapi.dll`、`xinput1_4.dll`）。
 
-**运行时**：首次在 Steam 大更新后启动需要访问 `raw.githubusercontent.com` 拉取函数签名与 IPC 元数据（之后走本地缓存）；若该域名不可达，需要自建镜像并配置 `[remote] url_template`。
+**运行时**：签名表与 IPC 元数据按**客户端 DLL 的 SHA-256** 取，命中本地缓存（`<Steam>\opensteamtool\{pattern,ipc}\<组件>\<sha>.toml`）时**完全不联网**；只有首次安装、或 Steam 更新了客户端（哈希变化）才走内置镜像链取表。全部镜像不可达时仍可用旧缓存启动。需要强制刷新时配 `[remote] force_refresh = true`。
 
 ## 已知限制
 
