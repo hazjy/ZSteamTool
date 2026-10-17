@@ -26,7 +26,7 @@
 | `src/Hook/Hooks_Misc.cpp` | `hkGetAppIDForCurrentPipe`：洗白判定（会话已登记 + `real != 会话身份` + `real` 在本机 lua 配过 + `real == 锁定值`）+ 探针；`EngageEnvSession`：登记会话身份、真值、启动退出看门狗；`ResetEnvSession`：进程退出即清 |
 | `src/Pipe/PipeManager.cpp` | 握手时调用 `EngageEnvSession(pid, 创建时间, env 身份, 尝试量到的真值)` —— 量值失败传 0（引擎指针未就绪），改由首次判定时锁定 |
 | `src/Utils/Config/Config.{h,cpp}` · `opensteamtool.example.toml` | `[onlinefix] env_session`（默认 `true`）：**只作排查用的总开关**，关掉后只剩老的 `-onlinefix` 命令行路线 |
-| `src/dllmain.h` | `kEnableAppIdRewrites = false`：MMS 建厅 / 服务器查询 / RemoteStorage 那批报文改写全部不启用 |
+| `src/dllmain.h` | `kEnableRemoteStorageAppIdRewrite = false`：**只剩** `IClientRemoteStorage` 首参数（480→真 appid，云存档归属）这一处改写，且**尚未做过行为验证**；MMS 建厅 / 服务器查询的报文改写已于 2026-10-17 删除 |
 | 垫片 `src/dwmapi` · `src/xinput1_4` | 两个垫片都只做"导出转发 + 加载 `OpenSteamTool.dll`"，且**只在宿主 exe 名 = `steam.exe` 时加载内核**（改名即不注入）；任一垫片单独存在也能加载内核 |
 
 ## 3. 验证状态（截至 2026-10-17 00:05）
@@ -86,4 +86,4 @@ netpacket.log MMS dump … CreateLobby(6601) #1=… / CreateLobbyResponse(6602) 
 - 同一 Steam 进程内可重挂会话，但**同一时间只支持一个会话游戏**（沿用内核原有"一次一个"的假设）。
 - 宿主进程与游戏进程在 Steam 侧是**两条独立记录**（480 与真 appid）：UI 显示真名、大厅走 480，属预期。
 - 签名表取表（2026-10-17 起）：**缓存优先**——表按客户端 DLL 的 SHA-256 缓存，命中就零网络、日志只有 `cache hit … skipping network`；只有客户端更新/首装/开了 `[remote] force_refresh` 才走镜像链。镜像链首个源是 `git.lua.tools`（唯一在更新的镜像），单个镜像失败降为 DEBUG，**只有整链全失败才有一条 WARN**；真正"取不到表"才会弹 `Unsupported Steam Version` / `Missing Signatures` 窗。
-- 出站报文改写路线**已被实测否掉**（MMS 建厅改 480/1046930 都得 `Fail`；服务器查询改真 appid 反而列表变空），相关代码仅留观测，行为默认关闭。
+- 出站报文改写路线**已被实测否掉**（MMS 建厅改 480/1046930 都得 `Fail`；服务器查询改真 appid 反而列表变空）——**那部分代码已于 2026-10-17 删除，只留观测**。唯一留下的改写是 `IClientRemoteStorage` 首参数（云存档归属真 appid），默认关闭且未做行为验证。

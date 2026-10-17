@@ -269,7 +269,7 @@ namespace {
         // handle handshake messages
         HandleHandshake(pServer, hSteamPipe, pRead);
         DetectNetworkingSockets(pRead);
-        if (kEnableAppIdRewrites) RewriteOutboundAppId(pRead);
+        if (kEnableRemoteStorageAppIdRewrite) RewriteOutboundAppId(pRead);
         ProfileIpcCall(pServer, hSteamPipe, pRead);
 
         IPCDispatch dispatch = ResolveDispatch(pServer, hSteamPipe, pRead);

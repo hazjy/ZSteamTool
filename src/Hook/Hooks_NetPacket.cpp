@@ -1399,69 +1399,6 @@ namespace {
         return false;
     }
 
-    void PbWriteVarint(std::string& out, uint64 v) {
-        while (v >= 0x80) {
-            out.push_back(static_cast<char>((v & 0x7F) | 0x80));
-            v >>= 7;
-        }
-        out.push_back(static_cast<char>(v));
-    }
-
-    bool PbRewriteAppId(const uint8* p, uint32 n, uint64 from, uint64 to,
-                        uint32 depth, std::string& out) {
-        uint32 pos = 0;
-        while (pos < n) {
-            uint64 tag = 0;
-            if (!PbReadVarint(p, n, pos, tag)) return false;
-            const uint32 field = static_cast<uint32>(tag >> 3);
-            const uint32 wire  = static_cast<uint32>(tag & 0x7);
-
-            if (wire == 0) {
-                uint64 v = 0;
-                if (!PbReadVarint(p, n, pos, v)) return false;
-                PbWriteVarint(out, tag);
-                PbWriteVarint(out, (field == 1 && depth <= 1 && v == from) ? to : v);
-                continue;
-            }
-            if (wire == 2) {
-                uint64 len = 0;
-                if (!PbReadVarint(p, n, pos, len)) return false;
-                if (pos + len > n) return false;
-                std::string sub;
-                // 只对字段 2 试一次"当成嵌套消息再走一遍"；走不通就原样拷贝
-                // （字符串字段的 payload 往往不是合法 protobuf，自然会回退）。
-                if (depth <= 1 && field == 2) {
-                    std::string nested;
-                    if (PbRewriteAppId(p + pos, static_cast<uint32>(len), from, to, depth + 1, nested))
-                        sub.swap(nested);
-                }
-                if (sub.empty())
-                    sub.assign(reinterpret_cast<const char*>(p + pos), static_cast<size_t>(len));
-                PbWriteVarint(out, tag);
-                PbWriteVarint(out, sub.size());
-                out += sub;
-                pos += static_cast<uint32>(len);
-                continue;
-            }
-            if (wire == 5) {
-                if (pos + 4 > n) return false;
-                PbWriteVarint(out, tag);
-                out.append(reinterpret_cast<const char*>(p + pos), 4);
-                pos += 4;
-                continue;
-            }
-            if (wire == 1) {
-                if (pos + 8 > n) return false;
-                PbWriteVarint(out, tag);
-                out.append(reinterpret_cast<const char*>(p + pos), 8);
-                pos += 8;
-                continue;
-            }
-            return false;   // 3/4（组起止）或非法 → 放弃
-        }
-        return true;
-    }
-
     // ── 极简 protobuf 字段转储（诊断用）──────────────────────────────────────
     // 把字段按「编号=值」打印出来，供没有 IDL 的消息（MMS 大厅那批）使用。
     // 对 length-delimited 字段再**下钻一层**：若其内容本身能解析成 protobuf 就打印
@@ -1547,82 +1484,19 @@ namespace {
     // 只改了游戏侧（env / GetAppID）。所以这里把请求里的 appid 换成会话 appid
     // （默认 480 / Spacewar，免费可用），响应里的 appid 再换回真实值，让游戏侧视角
     // 保持不变。字段号 1 的 varint 已由 DumpMms 实测确认，属精确改写而非盲扫。
-    bool IsMmsAppIdJob(EMsg eMsg) {
-        switch (eMsg) {
-        case k_EMsgClientMMSCreateLobby:   // 6601
-        case k_EMsgClientMMSJoinLobby:     // 6603
-        case k_EMsgClientMMSGetLobbyList:  // 6607
-            return true;
-        default:
-            return false;
-        }
-    }
+    // ── MMS 建厅 appid 改写：已删除（2026-10-17）────────────────────────────
+    // 2026-10-16 实测三种 appid 全部失败：4108000 -> #3=15（AccessDenied）、
+    // 改写为 480 -> #3=2（Fail）、改写为 1046930（真拥有）-> #3=2。结论见
+    // doc/报告-机械狂欢联机可行性-2026-10-16.md §二。这里只保留 DumpMms 观测。
 
-    bool RewriteMmsAppId(EMsg eMsg, const uint8* pBody, uint32 cbBody,
-                         AppId_t from, AppId_t to) {
-        if (!Hooks_Misc::IsOnlineFixActive()) return false;
-        if (from == 0 || to == 0 || from == to) return false;
-        if (!IsMmsAppIdJob(eMsg)) return false;
-
-        std::string out;
-        if (!PbRewriteAppId(pBody, cbBody, from, to, 0, out)) return false;
-        if (out.size() == cbBody && std::memcmp(out.data(), pBody, cbBody) == 0) return false;
-        if (out.size() > sizeof(g_SendNewBody)) return false;
-
-        std::memcpy(g_SendNewBody, out.data(), out.size());
-        g_cbSendNewBody = static_cast<uint32>(out.size());
-        LOG_NETPACKET_INFO("MMS appid rewrite: {}({}) {} -> {}（{} -> {} 字节）",
-                           MsgName(eMsg), static_cast<uint32>(eMsg), from, to,
-                           cbBody, out.size());
-        return true;
-    }
-
-    // 响应方向：把 session appid 换回真实 appid（与上面的改写对称）。
-    bool RewriteMmsResponseAppId(EMsg eMsg, const uint8* pBody, uint32 cbBody,
-                                 AppId_t from, AppId_t to) {
-        if (!Hooks_Misc::IsOnlineFixActive()) return false;
-        if (from == 0 || to == 0 || from == to) return false;
-        switch (eMsg) {
-        case k_EMsgClientMMSCreateLobbyResponse:  // 6602
-        case k_EMsgClientMMSJoinLobbyResponse:    // 6604
-            break;
-        default:
-            return false;
-        }
-
-        std::string out;
-        if (!PbRewriteAppId(pBody, cbBody, from, to, 0, out)) return false;
-        if (out.size() == cbBody && std::memcmp(out.data(), pBody, cbBody) == 0) return false;
-        if (out.size() > sizeof(g_NewBody)) return false;
-
-        std::memcpy(g_NewBody, out.data(), out.size());
-        g_cbNewBody = static_cast<uint32>(out.size());
-        LOG_NETPACKET_INFO("MMS appid rewrite(recv): {}({}) {} -> {}（{} -> {} 字节）",
-                           MsgName(eMsg), static_cast<uint32>(eMsg), from, to,
-                           cbBody, out.size());
-        return true;
-    }
-
-    // ── GameServers.*（服务器浏览器）：观测 + 可选 appid 改写 ──────────────────
+    // ── GameServers.*（服务器浏览器）：只做观测 ────────────────────────────────
     //
     // -onlinefix 下 Steam 侧身份是会话 appid（480），所以游戏的 master server 查询
-    // 问的是 **Spacewar 的服务器列表** —— 即所有搭 480 便车的游戏共享的那个世界，
-    // 而不是本游戏自己的服务器。2026-10-16 机械狂欢（4108000）实测：列表里出现过
-    // "My PZ Server"（Project Zomboid，端口 16261）与 "BUMMER RUST"/"Anykey"
-    // （Rust，端口 28015）—— 各家的 480 服混在一个池子里；这些服自报的 appid 与
-    // 本游戏对不上，客户端连它们就报「服务器指定的 app id 无效」。而 480 世界建房
-    // 依旧成功。查询 body 实测（00:41:54）：`08 E0 03 12 0B 08 E0 03 …`
-    // —— 字段 1 varint = 480，字段 2 是嵌套消息（里面字段 1 又是 480），字段 4 是
-    // A2S 风格过滤串。所以 appid 是 **varint** 而不是小端 uint32（早先按 uint32 扫
-    // 必然扫不到）。
-    //
-    // 本函数先记录完整 body（hex），再在「启动项要求游戏侧保持真 appid」时用上面的
-    // 极简手术把字段 1 的 appid 换成真 appid，让查询落到本游戏自己的服务器上。
+    // 问的是 **Spacewar 的服务器列表**（各家的 480 服混在一个池子里）。
+    // 出站改写已删除（2026-10-17）：2026-10-16 实测把查询 appid 改成真值后列表反而变空。
     bool HandleSend_GameServersJob(const char* jobName,
-                                   const uint8* pBody, uint32 cbBody,
-                                   bool allowRewrite)
+                                   const uint8* pBody, uint32 cbBody)
     {
-        // 观测不受 onlinefix 会话限制（诊断用；改写仍受 kEnableAppIdRewrites 约束）。
         if (!pBody || cbBody < 2)
             return false;
 
@@ -1636,28 +1510,7 @@ namespace {
 
         LOG_NETPACKET_INFO("{}: cbBody={} session={} real={}", jobName, cbBody, session, real);
         LOG_NETPACKET_DEBUG("{}: body[{}] {}", jobName, dump, hex);
-
-        if (!allowRewrite) return false;
-        // 只在 -realappid 的混合模式（游戏侧本就该看到真 appid）下改写。
-        if (!Hooks_Misc::IsAppIdFlipSuppressed()) return false;
-        if (real == 0 || real == session) return false;
-
-        std::string out;
-        if (!PbRewriteAppId(pBody, cbBody, session, real, 0, out)) {
-            LOG_NETPACKET_WARN("{}: body 不是可解析的 protobuf，未改", jobName);
-            return false;
-        }
-        if (out.size() == cbBody && std::memcmp(out.data(), pBody, cbBody) == 0) {
-            LOG_NETPACKET_INFO("{}: 字段 1 未出现会话 appid {}，未改", jobName, session);
-            return false;
-        }
-        if (out.size() > sizeof(g_SendNewBody)) return false;
-
-        std::memcpy(g_SendNewBody, out.data(), out.size());
-        g_cbSendNewBody = static_cast<uint32>(out.size());
-        LOG_NETPACKET_INFO("{}: 出站 body 改写 appid {} -> {}（{} -> {} 字节）",
-                           jobName, session, real, cbBody, out.size());
-        return true;
+        return false;
     }
 
     bool SendServiceJob(const char* targetJobName,
@@ -1688,17 +1541,16 @@ namespace {
         case HASH_JOB_GetManifestRequestCode:
             return Hooks_NetPacket_Manifest::HandleSend(pBody, cbBody, pHdr, cbHdr);
 
-        // 服务器浏览器：先观测命中情况；-realappid 时才把公开查询的 appid 改成真值
-        // （MasterServerQuery 决定"列出哪个游戏的服务器"，是本次问题的关键一条）。
+        // 服务器浏览器：只观测命中情况（出站改写已删除，实测无效）
         case HASH_JOB_GameServersMasterQuery:
-            return HandleSend_GameServersJob("GameServers.MasterServerQuery#1", pBody, cbBody, kEnableAppIdRewrites);
+            return HandleSend_GameServersJob("GameServers.MasterServerQuery#1", pBody, cbBody);
         case HASH_JOB_GameServersRepository:
-            return HandleSend_GameServersJob("GameServers.Repository#1", pBody, cbBody, kEnableAppIdRewrites);
+            return HandleSend_GameServersJob("GameServers.Repository#1", pBody, cbBody);
         case HASH_JOB_GameServersFriends:
-            return HandleSend_GameServersJob("GameServers.FriendsQuery#1", pBody, cbBody, false);
-        // 建房时向 Valve 登记本机服务（自报 appid），先只观测，确认格式后再决定是否改。
+            return HandleSend_GameServersJob("GameServers.FriendsQuery#1", pBody, cbBody);
+        // 建房时向 Valve 登记本机服务（自报 appid）：只观测。
         case HASH_JOB_GameServersPingReply:
-            return HandleSend_GameServersJob("GameServers.ReportServerPingReply#1", pBody, cbBody, false);
+            return HandleSend_GameServersJob("GameServers.ReportServerPingReply#1", pBody, cbBody);
 
         // ---- add new 151 service methods here ----
         }
@@ -1714,10 +1566,6 @@ namespace {
         LOG_NETPACKET_DEBUG("Send eMsg {}({}) (cbBody={}, cbHdr={})",
                         MsgName(eMsg), static_cast<uint32>(eMsg), cbBody, cbHdr);
         DumpMms("send", eMsg, pBody, cbBody);
-        if (kEnableAppIdRewrites &&
-            RewriteMmsAppId(eMsg, pBody, cbBody,
-                            Hooks_Misc::ResolveAppId(), Hooks_Misc::SessionAppId()))
-            g_NeedReplaceSend = true;
 
         switch (eMsg) {
 
@@ -1797,10 +1645,6 @@ namespace {
         LOG_NETPACKET_DEBUG("Recv eMsg {}({}) (cbBody={}, cbHdr={})",
                         MsgName(eMsg), static_cast<uint32>(eMsg), cbBody, cbHdr);
         DumpMms("recv", eMsg, pBody, cbBody);
-        if (kEnableAppIdRewrites &&
-            RewriteMmsResponseAppId(eMsg, pBody, cbBody,
-                                    Hooks_Misc::SessionAppId(), Hooks_Misc::ResolveAppId()))
-            g_NeedReplaceBody = true;
 
         switch (eMsg) {
 

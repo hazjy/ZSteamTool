@@ -27,12 +27,14 @@
 inline OSTPlatform::DynamicLibrary::ModuleHandle client_hModule = nullptr;
 inline OSTPlatform::DynamicLibrary::ModuleHandle ui_hModule = nullptr;
 
-// ── 出站 appid 改写总开关（实验分支用）──────────────────────────────────────
-// 默认 **关闭**：只保留观测（出站 IPC 指令画像 / 响应记录 / MMS 字段转储 / 服务器查询观测），
-// 不修改任何报文。理由见 doc/TODO/待办/04：那一批改写（MMS 建厅 appid、服务器查询 appid、
-// RemoteStorage 首参数）已被实测证明无效，且会把 Steam 侧填好的会话 appid 改坏 ——
-// 测"环境变量拉会话身份"这条路线（OnlineHost）时必须保持零改写。
-inline constexpr bool kEnableAppIdRewrites = false;
+// ── 出站 appid 改写：只剩 IClientRemoteStorage 首参数这一处 ───────────────────
+// 用途：480 启动的游戏，其 `*ForApp` 调用的首参数会被当成 Spacewar → 云存档落到 480
+// 名下；打开本开关后把首参数 480 换成真 appid，让云存档回到游戏自己名下。
+// **默认关闭**：这一处**尚未做过行为验证**（2026-10-16 仅移植 + 编译通过）。
+// 注意：MMS 建厅与服务器查询的报文改写已于 2026-10-17 删除 —— 那两处 2026-10-16 实测无效
+// （4108000→#3=15、改写 480/1046930→#3=2；查询改真 appid 后列表变空），结论见
+// doc/报告-机械狂欢联机可行性-2026-10-16.md §二。
+inline constexpr bool kEnableRemoteStorageAppIdRewrite = false;
 
 inline constexpr size_t kRuntimePathCapacity = 260;
 
