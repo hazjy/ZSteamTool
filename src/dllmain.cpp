@@ -158,6 +158,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, PVOID pvReserved)
     }
     else if (dwReason == DLL_PROCESS_DETACH && IsSteamHost())
     {
+        // pvReserved != nullptr 表示进程正在退出：此时次级线程已被系统终止，
+        // 再去 Stop watcher / 跑反挂，等于在 loader lock 下等一个已死的线程，
+        // 退出偶发挂死或 abort。进程退出不需要清理，直接放手交给系统。
+        if (pvReserved) return TRUE;
+
         ConfigFileWatcher::Stop();
         LuaFileWatcher::Stop();
         SteamUI::CoreUnhook();
