@@ -65,6 +65,8 @@ namespace {
             }
             for (uint32 i = 0; i < numToAdd; i++)
                 pPkg->AppIdVec.m_Memory.m_pMemory[oldSize + i] = appIds[i];
+            // Grow 只扩容量不改长度，回写长度保证注入的 AppId 对按长度遍历的逻辑可见
+            pPkg->AppIdVec.m_Size = oldSize + numToAdd;
         }
 
         g_licenseInitialized = true;
@@ -171,6 +173,8 @@ namespace Hooks_Package {
                     addedIds.insert(additions[i]);
                     LOG_PACKAGE_DEBUG("NotifyLicenseChanged: inserted AppId {} at [{}]", additions[i], oldSize + i);
                 }
+                // Grow 只扩容量不改长度，回写长度保证注入的 AppId 对按长度遍历的逻辑可见
+                pPkg->AppIdVec.m_Size = oldSize + static_cast<uint32_t>(additions.size());
             }else {
                 LOG_PACKAGE_WARN("NotifyLicenseChanged: failed to grow AppId vector for additions");
             }
