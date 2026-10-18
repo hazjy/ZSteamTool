@@ -1121,7 +1121,7 @@ namespace Hooks_NetPacket_OnlineFix {
         const bool broadcast = Hooks_NetPacket_RichPresence::BroadcastEnabled();
 
         bool patched = false;
-        for (int i = 0; i < msg.games_played_size(); ++i) {
+        for (int i = 0; broadcast && i < msg.games_played_size(); ++i) {
             auto* game = msg.mutable_games_played(i);
             AppId_t appid = static_cast<AppId_t>(game->game_id() & UINT32_MAX);
 
