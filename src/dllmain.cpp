@@ -112,12 +112,12 @@ static uint32_t InitThread(OSTPlatform::DynamicLibrary::ModuleHandle selfModule)
     SteamUI::CoreHook();
     SteamClient::CoreHook();
 
-    // Surface any functions that FindPattern() could not locate.
-    PatternLoader::ReportMissingFunctions();
+    // 缓存命中的表里缺函数时，异步重取一次（写缓存，下次启动生效）。本会话已经缺的
+    // 钩子不会因此恢复，所以先登记、再把"正在后台重取"写进弹窗文案，且全程不等待。
+    const bool refreshQueued = PatternLoader::RefreshMissingMetadata();
 
-    // 缓存命中的表里缺函数时，异步重取一次（写缓存，下次启动生效）。
-    // 本会话已经缺的钩子不会因此恢复，所以放在报告之后、且不等待。
-    PatternLoader::RefreshMissingMetadata();
+    // Surface any functions that FindPattern() could not locate.
+    PatternLoader::ReportMissingFunctions(refreshQueued);
 
     // Optional Steam Cloud save redirection (CloudRedirect). No-op unless
     // [cloud].enabled is set and cloud_redirect.dll is present.

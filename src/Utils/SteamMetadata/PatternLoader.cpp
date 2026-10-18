@@ -331,7 +331,7 @@ void* FindPattern(OSTPlatform::DynamicLibrary::ModuleHandle module, const char* 
     return nullptr;
 }
 
-void ReportMissingFunctions()
+void ReportMissingFunctions(bool refreshQueued)
 {
     if (g_missingFunctions.empty()) return;
 
@@ -346,13 +346,17 @@ void ReportMissingFunctions()
         "有函数没能在签名表里定位到。\n\n"
         "下列函数未在签名文件中找到：\n" +
         list +
-        "\n依赖它们的钩子已在本次会话内停用，其它功能不受影响。\n\n"
+        "\n依赖它们的钩子已在本次会话内停用，其它功能不受影响。\n\n" +
+        (refreshQueued
+            ? "已自动在后台重取签名表（磁盘缓存已更新）——重启一次 Steam 即生效，"
+              "不用手动处理。\n\n"
+            : "") +
         "常见原因：Steam 客户端刚更新过多（镜像还没 publish 对应版本的表），"
         "或该版本的部分函数签名发生了变化。\n"
         "反馈与排查：https://github.com/hazjy/ZSteamTool");
 }
 
-void RefreshMissingMetadata()
+bool RefreshMissingMetadata()
 {
     // 快照 + 占坑都在锁内完成（每会话每模块最多一次），HTTP 在锁外、分离线程里跑。
     struct Target {
@@ -377,7 +381,7 @@ void RefreshMissingMetadata()
                                 src->misses.load(std::memory_order_relaxed) });
         }
     }
-    if (targets.empty()) return;
+    if (targets.empty()) return false;
 
     for (const auto& t : targets) {
         LOG_WARN("PatternLoader: stale cached table for {} is missing {} function(s), "
@@ -429,6 +433,8 @@ void RefreshMissingMetadata()
             }
             return 0;
         });
+
+    return true;
 }
 
 } // namespace PatternLoader
