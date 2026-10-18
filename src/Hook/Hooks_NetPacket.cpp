@@ -82,8 +82,8 @@ namespace {
             static bool warned = false;
             if (!warned) {
                 warned = true;
-                LOG_WARN("UnpackRaw: 非法数据指针 0x{:X} size={} origin={} —— 已忽略该帧"
-                         "（CNetPacket 或钩子参数布局可能又变了）",
+                LOG_WARN("UnpackRaw: 非法数据指针 0x{:X} size={} origin={}；已忽略该帧"
+                         "（CNetPacket 或钩子参数布局可能再次发生变化）",
                          static_cast<uint64>(reinterpret_cast<uintptr_t>(data)), size,
                          origin ? origin : "?");
             }

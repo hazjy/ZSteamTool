@@ -194,11 +194,11 @@ static void ShowDownloadFailedPopup(const std::string& dllName,
         "内核：未找到该 Steam 版本的签名表",
         "签名文件缺失：" + dllName + "\n\n"
         "依赖 " + dllName + " 的钩子已在本次会话内停用，其它模块不受影响。\n\n"
-        "可以这样处理：\n"
-        "  1. 先重启一次 Steam —— 内置镜像链会自动重取（首选 git.lua.tools，其次 mmxlyo / 其它兜底）。\n"
-        "  2. 若刚更新过 Steam，等镜像方发布对应版本的表（通常数小时到一天）。\n"
-        "  3. 想强制重取：在 opensteamtool.toml 的 [remote] 段加 force_refresh = true 后重启 Steam。\n"
-        "  4. 也可以手工放入匹配的表：\n"
+        "处理方式：\n"
+        "  1. 请先重启一次 Steam。内置镜像链会自动重新获取（首选 git.lua.tools，其次 mmxlyo，其余为兜底）。\n"
+        "  2. 若 Steam 刚完成更新，请等待镜像方发布对应版本的表（通常需要数小时至一天）。\n"
+        "  3. 如需强制重新获取，请在 opensteamtool.toml 的 [remote] 段设置 force_refresh = true，然后重启 Steam。\n"
+        "  4. 也可手工放置匹配的表：\n"
         "       <Steam>\\opensteamtool\\pattern\\" + component + "\\" + sha256 + ".toml\n"
         "  5. 反馈与排查：https://github.com/hazjy/ZSteamTool");
 }
@@ -343,16 +343,14 @@ void ReportMissingFunctions(bool refreshQueued)
 
     SteamDiagnostics::ShowWarning(
         "内核：部分签名未命中",
-        "有函数没能在签名表里定位到。\n\n"
-        "下列函数未在签名文件中找到：\n" +
+        "下列函数未能从签名表中定位：\n" +
         list +
-        "\n依赖它们的钩子已在本次会话内停用，其它功能不受影响。\n\n" +
+        "\n依赖上述函数的钩子已在本次会话内停用，其它功能不受影响。\n\n" +
         (refreshQueued
-            ? "已自动在后台重取签名表（磁盘缓存已更新）——重启一次 Steam 即生效，"
-              "不用手动处理。\n\n"
+            ? "签名表已在后台重新获取（磁盘缓存已更新）。重启一次 Steam 后生效，无需手动处理。\n\n"
             : "") +
-        "常见原因：Steam 客户端刚更新过多（镜像还没 publish 对应版本的表），"
-        "或该版本的部分函数签名发生了变化。\n"
+        "常见原因：Steam 客户端更新幅度较大（镜像方尚未发布对应版本的表），"
+        "或该版本中部分函数的签名已发生变化。\n"
         "反馈与排查：https://github.com/hazjy/ZSteamTool");
 }
 

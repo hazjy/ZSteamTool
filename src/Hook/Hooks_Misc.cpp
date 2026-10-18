@@ -346,8 +346,8 @@ namespace Hooks_Misc {
         StartEnvSessionWatcher(pid);
 
         if (clientAppId == 0)
-            LOG_MISC_INFO("env session armed: session appid = {} (pid={})；握手时量不到会话 pipe 的真 appid"
-                          " —— 将在首次判定时锁定（日志里会有一行『锁定会话 pipe 的真 appid』）",
+            LOG_MISC_INFO("env session armed: session appid = {} (pid={})；握手期间未能测得会话 pipe 的真 appid，"
+                          "将在首次判定时锁定（日志中会出现一行『锁定会话 pipe 的真 appid』）",
                           envAppId, pid);
         else
             LOG_MISC_INFO("env session armed: session appid = {} (pid={})，会话 pipe 的真 appid = {}",

@@ -140,12 +140,12 @@ namespace {
     {
         SteamDiagnostics::ShowWarning(
             "内核：缺少 IPC 表",
-            "没有找到本版本 Steam 的 IPC 表文件。\n\n"
-            "IPC 拦截在本次会话内停用（票据相关功能不可用）；基于签名的钩子不受影响。\n\n"
-            "可以这样处理：\n"
-            "  1. 重启一次 Steam —— 内置镜像链会自动重取。\n"
-            "  2. 刚更新过 Steam 的话，等镜像方发布对应版本的表。\n"
-            "  3. 手工放入匹配的表：\n"
+            "未找到本版本 Steam 的 IPC 表文件。\n\n"
+            "IPC 拦截已在本次会话内停用（票据相关功能不可用）；基于签名的钩子不受影响。\n\n"
+            "处理方式：\n"
+            "  1. 请先重启一次 Steam，内置镜像链会自动重新获取。\n"
+            "  2. 若 Steam 刚完成更新，请等待镜像方发布对应版本的表。\n"
+            "  3. 也可手工放置匹配的表：\n"
             "       <Steam>\\opensteamtool\\ipc\\steamclient\\" + sha256 + ".toml\n"
             "  4. 反馈与排查：https://github.com/hazjy/ZSteamTool");
     }

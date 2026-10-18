@@ -73,7 +73,7 @@ ZSteamTool 是一个注入 Steam 客户端的内核（三个 DLL），用来解�
 | `[lua] paths` | Lua 配置目录；**非空时只扫描这里**（GUI 改「Lua 路径」会自动写入本行并热重载），留空则用默认 `<Steam>\config\lua` |
 | `[inject]` | 可选的游戏进程注入（默认关） |
 | `[cloud]` | 可选云存档重定向（需自备 `cloud_redirect.dll`，默认关） |
-| `[remote]` | 自定义元数据镜像（默认走内置镜像链：`git.lua.tools` 优先，另有 GitHub / jsDelivr 兜底；表按 DLL 哈希缓存，命中不联网，除下方那条例外） |
+| `[remote]` | 自定义元数据镜像（默认走内置镜像链：`git.lua.tools` 优先，另有 GitHub / jsDelivr 兜底；表按 DLL 哈希缓存，命中时不联网，例外情况见下文） |
 
 ## 可选外部组件：CloudRedirect（云存档重定向）
 
@@ -108,7 +108,7 @@ set TOOLSET=v145 && build.bat      # 指定 MSVC 工具集（生成器为 Visual
 
 **运行时**：签名表与 IPC 元数据按**客户端 DLL 的 SHA-256** 取，命中本地缓存（`<Steam>\opensteamtool\{pattern,ipc}\<组件>\<sha>.toml`）时**完全不联网**；只有首次安装、或 Steam 更新了客户端（哈希变化）才走内置镜像链取表。全部镜像不可达时仍可用旧缓存启动。需要强制刷新时配 `[remote] force_refresh = true`。
 
-**唯一例外（仅签名表）**：本次启动若真有钩子函数在缓存表里查不到（镜像方事后给同一哈希补过表），内核会在**后台异步**重取一次并写回缓存 —— 每模块每会话最多一次、**不阻塞启动**、新表**下次启动生效**。Release 版没有日志，这个行为是静默的；要确认就换 Debug 版看 `main.log` 里的 `stale cached table … refreshing once this session`。
+**唯一例外（仅签名表）**：本次启动确有钩子函数在缓存表中无法定位时（镜像方事后为同一哈希补发过表），内核会在**后台异步**重新获取一次并写回缓存。每个模块每会话最多一次，**不阻塞启动**，新表于**下次启动**生效。Release 版不写日志，该行为无提示；如需确认，请使用 Debug 版查看 `main.log` 中的 `stale cached table … refreshing once this session`。
 
 ## 已知限制
 
