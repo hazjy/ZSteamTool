@@ -53,6 +53,14 @@ namespace {
         return oCUtlMemoryGrow(pVec, grow_size);
     }
 
+    // 包 0 是按 m_Size 遍历的外部向量。同一个 appid 若已在其中就不再写第二份：
+    // 热重载的"先加后删"很容易造出重复项，而移除只会摘走一份、留下残影。
+    bool AppIdVecContains(const CUtlVector<AppId_t>& vec, AppId_t id) {
+        for (uint32 i = 0; i < vec.m_Size; ++i)
+            if (vec.m_Memory.m_pMemory[i] == id) return true;
+        return false;
+    }
+
     bool InitFakeLicenseOnce(PackageInfo* pPkg) {
         // check package status before injecting
         if (pPkg->Status != EPackageStatus::Available) {
@@ -70,10 +78,17 @@ namespace {
                 LOG_PACKAGE_WARN("InitFakeLicense(PackageId={}): failed to grow AppId vector", kInjectedPackageId);
                 return false;
             }
-            for (uint32 i = 0; i < numToAdd; i++)
-                pPkg->AppIdVec.m_Memory.m_pMemory[oldSize + i] = appIds[i];
+            uint32 inserted = 0;
+            for (uint32 i = 0; i < numToAdd; i++) {
+                if (AppIdVecContains(pPkg->AppIdVec, appIds[i])) continue;  // 已在包里，不重复写
+                pPkg->AppIdVec.m_Memory.m_pMemory[oldSize + inserted] = appIds[i];
+                ++inserted;
+            }
             // Grow 只扩容量不改长度，回写长度保证注入的 AppId 对按长度遍历的逻辑可见
-            pPkg->AppIdVec.m_Size = oldSize + numToAdd;
+            pPkg->AppIdVec.m_Size = oldSize + inserted;
+            if (inserted != numToAdd)
+                LOG_PACKAGE_DEBUG("InitFakeLicense(PackageId={}): skipped {} duplicate appid(s)",
+                                  kInjectedPackageId, numToAdd - inserted);
         }
 
         g_licenseInitialized = true;
@@ -182,10 +197,14 @@ namespace Hooks_Package {
         LOG_PACKAGE_DEBUG("NotifyLicenseChanged: processing {} removals", removals.size());
         uint32_t removedCount = 0;
         for (AppId_t id : removals) {
-            if (pPkg->AppIdVec.FindAndFastRemove(id)) {
-                ++removedCount;
-                LOG_PACKAGE_DEBUG("NotifyLicenseChanged: removed AppId {}", id);
-            }else {
+            // 同一 appid 可能因重复注入而存在多份，一次摘净，避免删了 lua 还残留条目。
+            uint32_t removedForId = 0;
+            while (pPkg->AppIdVec.FindAndFastRemove(id)) ++removedForId;
+            if (removedForId > 0) {
+                removedCount += removedForId;
+                LOG_PACKAGE_DEBUG("NotifyLicenseChanged: removed AppId {} ({} entr{})",
+                                  id, removedForId, removedForId == 1 ? "y" : "ies");
+            } else {
                 LOG_PACKAGE_WARN("NotifyLicenseChanged: AppId {} not found in package AppIdVec during removal", id);
             }
         }
@@ -202,13 +221,16 @@ namespace Hooks_Package {
                 for (AppId_t id : additions)
                     Hooks_SteamUI::CancelRemoval(id);
 
+                uint32_t inserted = 0;
                 for (size_t i = 0; i < additions.size(); ++i) {
-                    pPkg->AppIdVec.m_Memory.m_pMemory[oldSize + i] = additions[i];
                     addedIds.insert(additions[i]);
-                    LOG_PACKAGE_DEBUG("NotifyLicenseChanged: inserted AppId {} at [{}]", additions[i], oldSize + i);
+                    if (AppIdVecContains(pPkg->AppIdVec, additions[i])) continue;  // 已在包里
+                    pPkg->AppIdVec.m_Memory.m_pMemory[oldSize + inserted] = additions[i];
+                    LOG_PACKAGE_DEBUG("NotifyLicenseChanged: inserted AppId {} at [{}]", additions[i], oldSize + inserted);
+                    ++inserted;
                 }
                 // Grow 只扩容量不改长度，回写长度保证注入的 AppId 对按长度遍历的逻辑可见
-                pPkg->AppIdVec.m_Size = oldSize + static_cast<uint32_t>(additions.size());
+                pPkg->AppIdVec.m_Size = oldSize + inserted;
             }else {
                 LOG_PACKAGE_WARN("NotifyLicenseChanged: failed to grow AppId vector for additions");
             }
