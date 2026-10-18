@@ -85,5 +85,5 @@ netpacket.log MMS dump … CreateLobby(6601) #1=… / CreateLobbyResponse(6602) 
 - 垫片**按文件名**认 Steam：宿主 exe 不叫 `steam.exe` 就永不注入（Steam 照常跑、游戏全不解锁）——想支持改名要改成按目录/签名识别。
 - 同一 Steam 进程内可重挂会话，但**同一时间只支持一个会话游戏**（沿用内核原有"一次一个"的假设）。
 - 宿主进程与游戏进程在 Steam 侧是**两条独立记录**（480 与真 appid）：UI 显示真名、大厅走 480，属预期。
-- 签名表取表（2026-10-17 起）：**缓存优先**——表按客户端 DLL 的 SHA-256 缓存，命中就零网络、日志只有 `cache hit … skipping network`；只有客户端更新/首装/开了 `[remote] force_refresh` 才走镜像链。镜像链首个源是 `git.lua.tools`（唯一在更新的镜像），单个镜像失败降为 DEBUG，**只有整链全失败才有一条 WARN**；真正"取不到表"才会弹 `Unsupported Steam Version` / `Missing Signatures` 窗。
+- 签名表取表（2026-10-17 起）：**缓存优先**——表按客户端 DLL 的 SHA-256 缓存，命中就零网络、日志只有 `cache hit … skipping network`；只有客户端更新/首装/开了 `[remote] force_refresh` 才走镜像链。镜像链首选 `git.lua.tools`（自动跟版）、次选 `mmxlyo/steam-monitor`，单个镜像失败降为 DEBUG；缓存里的表若解析不出条目或缺必需接口，会自动丢弃并重取一次（毒缓存自愈），只有全部镜像都 404 才算“上游未发布”，**只有整链全失败才有一条 WARN**；真正"取不到表"才会弹 `Unsupported Steam Version` / `Missing Signatures` 窗。
 - 出站报文改写路线**已被实测否掉**（MMS 建厅改 480/1046930 都得 `Fail`；服务器查询改真 appid 反而列表变空）——**那部分代码已于 2026-10-17 删除，只留观测**。唯一留下的改写是 `IClientRemoteStorage` 首参数（云存档归属真 appid），默认关闭且未做行为验证。
