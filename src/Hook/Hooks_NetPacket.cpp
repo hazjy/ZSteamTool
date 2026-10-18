@@ -105,8 +105,10 @@ namespace {
 
         eMsg  = static_cast<EMsg>(hdr->eMsg & ~kMsgHdrProtoFlag);
         cbHdr = hdr->headerLength;
-        uint32 off = sizeof(MsgHdr) + cbHdr;
-        if (off > size) goto fail;
+        // 减法比较：cbHdr 由对端给出，sizeof(MsgHdr) + cbHdr 会在 uint32 上回绕，
+        // 回绕后的小值能骗过 `off > size`，而下游仍按原始 cbHdr 解析 header（越界读）。
+        if (cbHdr > size - sizeof(MsgHdr)) goto fail;
+        const uint32 off = static_cast<uint32>(sizeof(MsgHdr)) + cbHdr;
         pHdr   = data + sizeof(MsgHdr);
         pBody  = data + off;
         cbBody = size - off;
@@ -682,7 +684,17 @@ namespace Hooks_NetPacket_Manifest {
             return;
         }
 
-        uint64 code = future.get();
+        // future.get() 会重抛任务内的异常；异常一旦穿过 RecvPkt 钩子就会把 Steam 带走。
+        uint64 code = 0;
+        try {
+            code = future.get();
+        } catch (const std::exception& e) {
+            LOG_MANIFEST_WARN("GetManifestRequestCode recv: fetch threw for jobid={}: {}", jobId, e.what());
+            return;
+        } catch (...) {
+            LOG_MANIFEST_WARN("GetManifestRequestCode recv: fetch threw unknown exception for jobid={}", jobId);
+            return;
+        }
         if (!code) {
             LOG_MANIFEST_WARN("GetManifestRequestCode recv: HTTP returned 0 for jobid={}", jobId);
             return;
@@ -1315,8 +1327,13 @@ namespace Hooks_NetPacket_Cloud {
 
         {
             std::lock_guard lk(g_queueMutex);
-            if (g_pending.size() < 64)
-                g_pending.push_back(std::move(pkt));
+            // 队列满时丢最旧的一条，而不是把新来的丢掉：对应的 RPC 在客户端是同步等待的，
+            // 丢新包会让它永久挂起；丢旧包最多少一次历史响应，并留一行日志可查。
+            if (g_pending.size() >= 64) {
+                g_pending.pop_front();
+                LOG_NETPACKET_WARN("Cloud: pending queue full (64), dropped the oldest response");
+            }
+            g_pending.push_back(std::move(pkt));
         }
         LOG_NETPACKET_DEBUG("Cloud: handled {} app={} -> queued {}-byte response (eresult={})",
                             jobName, appId, total, eresult);
@@ -1410,8 +1427,13 @@ namespace Hooks_NetPacket_LegacyKey {
 
         {
             std::lock_guard lk(g_queueMutex);
-            if (g_pending.size() < 64)
-                g_pending.push_back(std::move(pkt));
+            // 队列满时丢最旧的一条，而不是把新来的丢掉：对应的 RPC 在客户端是同步等待的，
+            // 丢新包会让它永久挂起；丢旧包最多少一次历史响应，并留一行日志可查。
+            if (g_pending.size() >= 64) {
+                g_pending.pop_front();
+                LOG_NETPACKET_WARN("Cloud: pending queue full (64), dropped the oldest response");
+            }
+            g_pending.push_back(std::move(pkt));
         }
         LOG_NETPACKET_DEBUG("LegacyKey: app={} answered locally ({} bytes, key '{}')",
                             appId, total, *key);
