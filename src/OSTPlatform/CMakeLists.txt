@@ -51,3 +51,10 @@ target_link_libraries(OSTPlatform PRIVATE
 target_compile_definitions(OSTPlatform PRIVATE
     $<$<CONFIG:Debug>:OPENSTEAMTOOL_LOGGING_ENABLED>
 )
+
+# [本地修复 2026-10-18] 与 OpenSteamTool 目标同源的问题：源文件是 UTF-8，缺了这行时
+# MSVC 按 CP936 读中文注释，会解码出破坏语法的字节（C2059 "}"）。2026-09-10 只给
+# OpenSteamTool 加了 /utf-8，本静态库漏了 —— 写第一个中文注释（Dialog.cpp）时就踩到。
+if(MSVC)
+    target_compile_options(OSTPlatform PRIVATE /utf-8)
+endif()
