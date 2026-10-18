@@ -449,3 +449,7 @@ struct CSteamApp
 	AppId_t ParentAppID;
 };
 #pragma pack(pop)
+// 同 upstream e07bead：这块布局漂移是静默的（读 pApp 字段会整体错位）。
+// x64 下按 pack(1) 逐成员累加为 0x44，32 位为 0x40。
+static_assert(sizeof(CSteamApp) == (sizeof(void*) == 8 ? 0x44 : 0x40),
+              "CSteamApp 布局漂移：x64 应为 0x44");
