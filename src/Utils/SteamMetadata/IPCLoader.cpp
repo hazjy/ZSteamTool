@@ -159,32 +159,59 @@ bool Load(const std::string& steamclientPath)
 {
     g_registry.Clear();
 
-    RemoteToml::Result r = RemoteToml::Fetch({
-        kIPCChannel,
-        "steamclient",
-        steamclientPath,
-    });
+    RemoteToml::Request request{ kIPCChannel, "steamclient", steamclientPath };
+    RemoteToml::Result r = RemoteToml::Fetch(request);
 
     if (!r.ok) {
         ShowMissingPopup(r.sha256.empty() ? "(hash failed)" : r.sha256);
         return false;
     }
 
-    toml::table root;
-    try {
-        root = toml::parse(r.body);
-    } catch (const toml::parse_error& e) {
-        LOG_WARN("IPCLoader: TOML parse error: {}", e.description());
+    // Our handlers all live under these two interfaces; if either is missing (or the table
+    // parses to zero methods) IPC ticketing is effectively dead and must NOT be reported as
+    // success. A cached table in that state is poisoned -> drop it and refetch once; a remote
+    // table in that state is simply broken (refetching returns the same bytes).
+    auto parseInto = [](const std::string& body, std::string& err) -> bool {
+        g_registry.Clear();
+        toml::table root;
+        try {
+            root = toml::parse(body);
+        } catch (const toml::parse_error& e) {
+            err = e.description();
+            return false;
+        }
+        for (auto& [key, val] : root) {
+            if (!val.is_table()) continue;
+            Interface iface;
+            if (!ParseInterfaceTable(key.str(), *val.as_table(), iface)) continue;
+            g_registry.Add(std::move(iface));
+        }
+        if (MethodCount() == 0) { err = "no methods"; return false; }
+        if (Find("IClientUser", "GetSteamID") == nullptr ||
+            Find("IClientUtils", "GetAppID") == nullptr) {
+            err = "required interfaces missing";
+            return false;
+        }
+        return true;
+    };
+
+    std::string parseErr;
+    bool parsed = parseInto(r.body, parseErr);
+    if (!parsed && r.fromCache) {
+        LOG_WARN("IPCLoader: cached TOML unusable ({}), discarding and refetching once", parseErr);
+        RemoteToml::RemoveCacheEntry(request);
+        request.forceNetwork = true;
+        r = RemoteToml::Fetch(request);
+        if (!r.ok) {
+            ShowMissingPopup(r.sha256.empty() ? "(hash failed)" : r.sha256);
+            return false;
+        }
+        parsed = parseInto(r.body, parseErr);
+    }
+    if (!parsed) {
+        LOG_WARN("IPCLoader: TOML unusable: {}", parseErr);
         ShowMissingPopup(r.sha256);
         return false;
-    }
-
-    for (auto& [key, val] : root) {
-        if (!val.is_table()) continue;
-        Interface iface;
-        if (!ParseInterfaceTable(key.str(), *val.as_table(), iface)) continue;
-
-        g_registry.Add(std::move(iface));
     }
 
     LOG_INFO("IPCLoader: loaded {} methods across {} interfaces ({})",

@@ -176,15 +176,25 @@ bool Load(OSTPlatform::DynamicLibrary::ModuleHandle module, const std::string& d
     namespace fs = std::filesystem;
 
     // Delegate fetch + cache + mirror fallback to RemoteToml.
-    RemoteToml::Result r = RemoteToml::Fetch({
-        kPatternChannel,
-        component,
-        dllPath,
-    });
+    RemoteToml::Request request{ kPatternChannel, component, dllPath };
+    RemoteToml::Result r = RemoteToml::Fetch(request);
 
+    std::string parseErr;
+    PatternMap map;
     if (r.ok) {
-        std::string parseErr;
-        PatternMap map = ParsePatternString(r.body, &parseErr);
+        map = ParsePatternString(r.body, &parseErr);
+        if (map.empty() && r.fromCache) {
+            // A cached table that parses to nothing is a poisoned cache entry: drop it and
+            // refetch exactly once. A *remote* table that parses to nothing is left alone
+            // (refetching returns the same bytes) — the popup below reports that case.
+            LOG_WARN("PatternLoader: cached TOML for {} parsed empty ({}), discarding and refetching once",
+                     component, parseErr.empty() ? "no entries" : parseErr);
+            RemoteToml::RemoveCacheEntry(request);
+            request.forceNetwork = true;
+            r = RemoteToml::Fetch(request);
+            if (r.ok)
+                map = ParsePatternString(r.body, &parseErr);
+        }
         if (!map.empty()) {
             LOG_INFO("PatternLoader: loaded {} patterns for {} ({})",
                      map.size(), component, r.fromCache ? "cache fallback" : "remote");

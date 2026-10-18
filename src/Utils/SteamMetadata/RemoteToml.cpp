@@ -21,6 +21,9 @@ namespace {
     // confirmed reachable first; the rest stay as fallbacks.
     constexpr const char* kDefaultTemplates[] = {
         "https://git.lua.tools/luatools/steam-monitor/raw/branch/{channel}/{component}/{sha256}.toml",
+        // Second live source: luatools is the auto-tracking mirror; mmxlyo is the active
+        // fork's own table repo (verified still updating, 2026-10-14).
+        "https://raw.githubusercontent.com/mmxlyo/steam-monitor/{channel}/{component}/{sha256}.toml",
         "https://raw.githubusercontent.com/OpenSteam001/steam-monitor/{channel}/{component}/{sha256}.toml",
         "https://cdn.jsdelivr.net/gh/OpenSteam001/steam-monitor@{channel}/{component}/{sha256}.toml",
         "https://raw.githubusercontent.com/madoiscool/steam-monitor/{channel}/{component}/{sha256}.toml",
@@ -119,7 +122,7 @@ Result Fetch(const Request& request)
     //    two dead mirrors each burn a full HTTP timeout, per component, every time.
     //    Network is only needed when the hash changes (client update), on first install,
     //    or when [remote] force_refresh is set.
-    const bool forceRefresh = Config::GetRemoteForceRefresh();
+    const bool forceRefresh = Config::GetRemoteForceRefresh() || request.forceNetwork;
     if (!forceRefresh && fs::exists(cachePath)) {
         std::ifstream ifs(cachePath, std::ios::binary);
         if (ifs) {
@@ -146,6 +149,7 @@ Result Fetch(const Request& request)
     OSTPlatform::Http::Result http;
     std::string lastUrl;
 
+    size_t notFoundCount = 0;
     for (size_t i = 0; i < urlTemplates.size(); ++i) {
         lastUrl = ExpandTemplate(urlTemplates[i], request, out.sha256);
         LOG_INFO("RemoteToml({}/{}): downloading {}",
@@ -156,6 +160,21 @@ Result Fetch(const Request& request)
 
         if (http.ok && http.status == 200) break;
 
+        if (http.ok && http.status == 404) {
+            ++notFoundCount;
+        } else {
+            // Transport failure (timeout / reset): a cross-border link hiccup is common,
+            // so retry this mirror once. 404 is not retried (refetching gets the same
+            // answer). One retry per mirror, never a loop, so a broken network cannot
+            // burn the startup path.
+            LOG_DEBUG("RemoteToml({}/{}): transport failed ({} ok={} HTTP={}), retrying once",
+                      request.channel, request.component, lastUrl, http.ok, http.status);
+            http = OSTPlatform::Http::Execute(L"GET", lastUrl.c_str(),
+                                              nullptr, 0, nullptr);
+            if (http.ok && http.status == 404) ++notFoundCount;
+            if (http.ok && http.status == 200) break;
+        }
+
         // Mirrors are independent repos with possibly different coverage, so a 404
         // (or any non-200) on one does NOT imply the others lack the file — always
         // fall through to the next mirror. A miss on one mirror is normal operation
@@ -165,11 +184,22 @@ Result Fetch(const Request& request)
                   request.channel, request.component, i + 1, lastUrl, http.ok, http.status);
     }
 
+    // Distinguish "all mirrors 404" (upstream really has not published this table — worth
+    // telling the user) from "network trouble" (stay quiet and retry next start). A
+    // misconfigured template that produced zero attempts is neither.
+    out.allNotFound = !urlTemplates.empty() && notFoundCount == urlTemplates.size();
+
     const bool remoteOk = http.ok && http.status == 200 && !http.body.empty();
     if (!remoteOk) {
-        LOG_WARN("RemoteToml({}/{}): all {} mirror(s) failed (last {} ok={} HTTP={})",
-                 request.channel, request.component, urlTemplates.size(),
-                 lastUrl.empty() ? "<none>" : lastUrl, http.ok, http.status);
+        if (out.allNotFound) {
+            LOG_WARN("RemoteToml({}/{}): all {} mirror(s) returned 404 "
+                     "(upstream has not published this table)",
+                     request.channel, request.component, urlTemplates.size());
+        } else {
+            LOG_WARN("RemoteToml({}/{}): all {} mirror(s) failed (last {} ok={} HTTP={})",
+                     request.channel, request.component, urlTemplates.size(),
+                     lastUrl.empty() ? "<none>" : lastUrl, http.ok, http.status);
+        }
     }
 
     // 5. Remote OK → write cache atomically (tmp + rename), return body.
@@ -231,6 +261,29 @@ Result Fetch(const Request& request)
              request.channel, request.component,
              lastUrl.empty() ? "<none>" : lastUrl, http.status);
     return out;
+}
+
+bool RemoveCacheEntry(const Request& request)
+{
+    namespace fs = std::filesystem;
+    const std::string sha = SteamDiagnostics::Sha256Of(request.dllPath);
+    if (sha.empty())
+        return false;
+
+    const fs::path steamRoot = fs::path(request.dllPath).parent_path();
+    const fs::path cachePath = steamRoot / "opensteamtool" / request.channel
+                               / request.component / (sha + ".toml");
+
+    std::error_code ec;
+    const bool removed = fs::remove(cachePath, ec);
+    if (removed) {
+        LOG_WARN("RemoteToml({}/{}): discarded bad cache entry {}, will refetch once",
+                 request.channel, request.component, cachePath.string());
+    } else if (ec) {
+        LOG_WARN("RemoteToml({}/{}): could not remove cache entry {} ({})",
+                 request.channel, request.component, cachePath.string(), ec.message());
+    }
+    return removed;
 }
 
 } // namespace RemoteToml
