@@ -115,6 +115,10 @@ static uint32_t InitThread(OSTPlatform::DynamicLibrary::ModuleHandle selfModule)
     // Surface any functions that FindPattern() could not locate.
     PatternLoader::ReportMissingFunctions();
 
+    // 缓存命中的表里缺函数时，异步重取一次（写缓存，下次启动生效）。
+    // 本会话已经缺的钩子不会因此恢复，所以放在报告之后、且不等待。
+    PatternLoader::RefreshMissingMetadata();
+
     // Optional Steam Cloud save redirection (CloudRedirect). No-op unless
     // [cloud].enabled is set and cloud_redirect.dll is present.
     CloudRedirectHost::Initialize(SteamInstallPath);

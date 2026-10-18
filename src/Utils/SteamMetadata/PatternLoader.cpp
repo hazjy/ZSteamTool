@@ -1,12 +1,16 @@
 #include "PatternLoader.h"
 #include "OSTPlatform/include/Memory.h"
 #include "OSTPlatform/include/Numbers.h"
+#include "OSTPlatform/include/Thread.h"
 #include "Utils/Logging/Log.h"
 #include "Utils/SteamMetadata/RemoteToml.h"
 #include "Utils/SteamMetadata/SteamDiagnostics.h"
 #include "Utils/Support/FnvHash.h"
 
+#include <atomic>
 #include <filesystem>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -44,6 +48,44 @@ static std::unordered_set<OSTPlatform::DynamicLibrary::ModuleHandle> g_failedMod
 
 // functions whose names were not found during FindPattern
 static std::vector<std::string> g_missingFunctions;
+
+// ---- stale-cache lazy refresh ----
+//
+// 缓存按客户端 DLL 的 SHA-256 内容寻址，正常启动直接命中、完全不联网（见
+// RemoteToml 的 cache-first）。代价是镜像方事后给同一个哈希补过表时我们永远
+// 看不到。这里记住"本次的表是从缓存来的"；一旦 FindPattern 有条目查不到，
+// 就登记一次懒刷新 —— 每会话每模块最多一次，并且放到分离线程里跑（表不热载，
+// 收益在下次启动，绝不能为它拖慢启动）。
+struct ModuleSource {
+    RemoteToml::Request request;
+    bool                fromCache = false;   // 本次的表来自本地缓存
+    size_t              entries   = 0;       // 旧表条目数，仅用于日志对比
+    std::atomic<uint32_t> misses{0};           // 本会话查不到的条目数
+    std::atomic<bool>     refreshNeeded{false};
+    std::atomic<bool>     refreshAttempted{false};
+};
+
+static std::mutex g_sourceMutex;
+static std::unordered_map<OSTPlatform::DynamicLibrary::ModuleHandle,
+                          std::unique_ptr<ModuleSource>> g_moduleSources;
+
+// 返回值在进程生命周期内稳定：map 里存的是 unique_ptr，rehash 只搬指针不搬对象。
+static ModuleSource* FindSource(OSTPlatform::DynamicLibrary::ModuleHandle module)
+{
+    std::lock_guard<std::mutex> lock(g_sourceMutex);
+    auto it = g_moduleSources.find(module);
+    return it == g_moduleSources.end() ? nullptr : it->second.get();
+}
+
+// 只有"本次是缓存命中"才值得重取；远程取到的表就是最新的。
+static void MarkRefreshNeeded(OSTPlatform::DynamicLibrary::ModuleHandle module)
+{
+    ModuleSource* src = FindSource(module);
+    if (!src || !src->fromCache)
+        return;
+    src->misses.fetch_add(1, std::memory_order_relaxed);
+    src->refreshNeeded.store(true, std::memory_order_relaxed);
+}
 
 // ---- byte-pattern scanner ----
 
@@ -197,6 +239,17 @@ bool Load(OSTPlatform::DynamicLibrary::ModuleHandle module, const std::string& d
             LOG_INFO("PatternLoader: loaded {} patterns for {} ({})",
                      map.size(), component, r.fromCache ? "cache fallback" : "remote");
             g_moduleMaps[module] = std::move(map);
+
+            // 记住来源：只有"本次是缓存命中"时，FindPattern 查不到条目才值得重取。
+            // 只登记成功加载的模块 —— 整表失败时 RemoteToml 已经试过全网。
+            {
+                auto src = std::make_unique<ModuleSource>();
+                src->request   = request;
+                src->fromCache = r.fromCache;
+                src->entries   = g_moduleMaps[module].size();
+                std::lock_guard<std::mutex> lock(g_sourceMutex);
+                g_moduleSources[module] = std::move(src);
+            }
             return true;
         }
         LOG_WARN("PatternLoader: TOML for {} parsed empty ({})",
@@ -236,6 +289,7 @@ void* FindPattern(OSTPlatform::DynamicLibrary::ModuleHandle module, const char* 
     auto entryIt = map.find(key);
     if (entryIt == map.end()) {
         LOG_WARN("PatternLoader: no entry for '{}' (key=0x{:08X})", funcName, key);
+        MarkRefreshNeeded(module);
         g_missingFunctions.emplace_back(funcName);
         return nullptr;
     }
@@ -273,6 +327,7 @@ void* FindPattern(OSTPlatform::DynamicLibrary::ModuleHandle module, const char* 
     }
 
     g_missingFunctions.emplace_back(funcName);
+    MarkRefreshNeeded(module);
     return nullptr;
 }
 
@@ -295,6 +350,85 @@ void ReportMissingFunctions()
         "常见原因：Steam 客户端刚更新过多（镜像还没 publish 对应版本的表），"
         "或该版本的部分函数签名发生了变化。\n"
         "反馈与排查：https://github.com/hazjy/ZSteamTool");
+}
+
+void RefreshMissingMetadata()
+{
+    // 快照 + 占坑都在锁内完成（每会话每模块最多一次），HTTP 在锁外、分离线程里跑。
+    struct Target {
+        RemoteToml::Request request;
+        size_t              entries = 0;
+        uint32_t            misses  = 0;
+    };
+    std::vector<Target> targets;
+    {
+        std::lock_guard<std::mutex> lock(g_sourceMutex);
+        for (auto& [module, src] : g_moduleSources) {
+            (void)module;
+            if (!src->fromCache) continue;
+            if (!src->refreshNeeded.load(std::memory_order_relaxed)) continue;
+
+            bool expected = false;
+            if (!src->refreshAttempted.compare_exchange_strong(
+                    expected, true, std::memory_order_relaxed)) {
+                continue;   // 本会话已经试过，不再重复联网
+            }
+            targets.push_back({ src->request, src->entries,
+                                src->misses.load(std::memory_order_relaxed) });
+        }
+    }
+    if (targets.empty()) return;
+
+    for (const auto& t : targets) {
+        LOG_WARN("PatternLoader: stale cached table for {} is missing {} function(s), "
+                 "refreshing once this session", t.request.component, t.misses);
+    }
+
+    // 表不热载：这次刷新只写缓存，下次启动才生效。因此必须异步 —— 我们内置
+    // 6 条镜像且每条一次 transport 重试，同步跑会给每次启动加一轮全链扫描，
+    // 而本会话一点收益都没有。两个模块串行在同一线程里，避免两条并发 HTTP。
+    OSTPlatform::Thread::StartDetached(
+        [targets = std::move(targets)]() -> uint32_t {
+            for (const auto& t : targets) {
+                RemoteToml::Request request = t.request;
+                request.forceNetwork = true;   // 复用现成的"跳过缓存短路"开关
+
+                LOG_INFO("PatternLoader: refreshing {} table from mirror chain "
+                         "(cached table had {} entries)", request.component, t.entries);
+                RemoteToml::Result r = RemoteToml::Fetch(request);
+
+                if (!r.ok) {
+                    LOG_WARN("PatternLoader: refresh of {} table failed, "
+                             "will retry on next launch", request.component);
+                    continue;
+                }
+                if (r.fromCache) {
+                    // 镜像也没给出新东西（远程失败回落本地缓存）：会话内不再重试。
+                    LOG_WARN("PatternLoader: refresh of {} table fell back to cache, "
+                             "upstream has not published a fixed table yet", request.component);
+                    continue;
+                }
+
+                std::string parseErr;
+                const PatternMap fresh = ParsePatternString(r.body, &parseErr);
+                if (fresh.empty()) {
+                    LOG_WARN("PatternLoader: refreshed {} table parsed empty ({}), "
+                             "keeping the cached one", request.component,
+                             parseErr.empty() ? "no entries" : parseErr);
+                    continue;
+                }
+                if (fresh.size() > t.entries) {
+                    LOG_INFO("PatternLoader: refreshed {} table: {} -> {} entries "
+                             "(next launch picks it up)",
+                             request.component, t.entries, fresh.size());
+                } else {
+                    LOG_INFO("PatternLoader: refreshed {} table: {} entries, unchanged "
+                             "(upstream has not fixed it yet)",
+                             request.component, fresh.size());
+                }
+            }
+            return 0;
+        });
 }
 
 } // namespace PatternLoader
