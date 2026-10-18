@@ -11,20 +11,38 @@
 #include "Utils/SteamMetadata/PatternLoader.h"
 
 // ── transaction helpers ─────────────────────────────────────────
-#define HOOK_BEGIN()                          \
-    do {                                       \
-        bool _ost_detour_transaction_ok_ = OSTPlatform::Detour::BeginTransaction()
+// Begin 的结果必须记下来：失败时 Commit 会返回错、留下悬空事务，
+// 后续模块的 Begin 直接失败却无人检查 —— 钩子静默没装上。
+#define HOOK_BEGIN()                                                        \
+    do {                                                                    \
+        const bool _ost_detour_begun_ = OSTPlatform::Detour::BeginTransaction(); \
+        bool _ost_detour_transaction_ok_ = _ost_detour_begun_
 
-#define HOOK_END()                            \
-        _ost_detour_transaction_ok_ = OSTPlatform::Detour::CommitTransaction() && _ost_detour_transaction_ok_; \
+#define HOOK_END()                                                          \
+        if (_ost_detour_begun_) {                                           \
+            if (_ost_detour_transaction_ok_) {                              \
+                _ost_detour_transaction_ok_ = OSTPlatform::Detour::CommitTransaction(); \
+            } else {                                                        \
+                static_cast<void>(OSTPlatform::Detour::AbortTransaction()); \
+            }                                                               \
+        }                                                                   \
+        (void)_ost_detour_transaction_ok_;                                  \
     } while (0)
 
-#define UNHOOK_BEGIN()                        \
-    do {                                       \
-        bool _ost_detour_transaction_ok_ = OSTPlatform::Detour::BeginTransaction()
+#define UNHOOK_BEGIN()                                                      \
+    do {                                                                    \
+        const bool _ost_detour_begun_ = OSTPlatform::Detour::BeginTransaction(); \
+        bool _ost_detour_transaction_ok_ = _ost_detour_begun_
 
-#define UNHOOK_END()                          \
-        _ost_detour_transaction_ok_ = OSTPlatform::Detour::CommitTransaction() && _ost_detour_transaction_ok_; \
+#define UNHOOK_END()                                                        \
+        if (_ost_detour_begun_) {                                           \
+            if (_ost_detour_transaction_ok_) {                              \
+                _ost_detour_transaction_ok_ = OSTPlatform::Detour::CommitTransaction(); \
+            } else {                                                        \
+                static_cast<void>(OSTPlatform::Detour::AbortTransaction()); \
+            }                                                               \
+        }                                                                   \
+        (void)_ost_detour_transaction_ok_;                                  \
     } while (0)
 
 // ── hook function definition ────────────────────────────────────
@@ -50,6 +68,7 @@ do {                                                              \
     if (_p_) {                                                    \
         o##name = (name##_t)_p_;                                  \
         if (!OSTPlatform::Detour::Attach(reinterpret_cast<void**>(&o##name), reinterpret_cast<void*>(hk##name))) { \
+            o##name = nullptr;   /* Attach 失败则不留"指向原函数"的假句柄 */ \
             _ost_detour_transaction_ok_ = false;                  \
         }                                                         \
     }                                                             \
@@ -63,11 +82,10 @@ do {                                                              \
 #define UNINSTALL_HOOK(name)                                          \
     do {                                                              \
         if (o##name) {                                                \
-            if (OSTPlatform::Detour::Detach(reinterpret_cast<void**>(&o##name), reinterpret_cast<void*>(hk##name))) { \
-                o##name = nullptr;                                    \
-            } else {                                                  \
+            if (!OSTPlatform::Detour::Detach(reinterpret_cast<void**>(&o##name), reinterpret_cast<void*>(hk##name))) { \
                 _ost_detour_transaction_ok_ = false;                  \
             }                                                         \
+            o##name = nullptr;   /* 无论成败都清句柄，避免下次误判"已装上" */ \
         }                                                             \
     } while (0)
 #define UNINSTALL_HOOK_C(name)        UNINSTALL_HOOK(name)

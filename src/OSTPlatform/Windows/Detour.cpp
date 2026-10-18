@@ -30,6 +30,10 @@ bool CommitTransaction() {
     return DetourSucceeded(DetourTransactionCommit(), "DetourTransactionCommit");
 }
 
+bool AbortTransaction() {
+    return DetourSucceeded(DetourTransactionAbort(), "DetourTransactionAbort");
+}
+
 bool Attach(void** target, void* detour) {
     return DetourSucceeded(
         DetourAttach(reinterpret_cast<PVOID*>(target), reinterpret_cast<PVOID>(detour)),
