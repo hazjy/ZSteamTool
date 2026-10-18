@@ -60,6 +60,9 @@ namespace Config {
     DenuvoMode GetDenuvoMode();
     bool GetOnlinefixEnvSession();
     bool GetStatsEnableApi();
+    // [presence] display —— 好友广播模式："spacewar"（默认）或 "none"。
+    // 除 "none" 以外的取值都保持现有的广播行为。
+    bool GetPresenceBroadcastEnabled();
     bool GetUpdateEnabled();
 
     // [manifest] — provider selection lives in ManifestClient (table-driven).
@@ -87,6 +90,9 @@ namespace Config {
 
     // [stats]
     inline bool statsEnableApi = true;
+
+    // [presence] display —— "spacewar"（默认）或 "none"。仅 "none" 关闭好友广播改写。
+    inline std::string presenceDisplay = "spacewar";
 
     // [update] - self-update check on startup (staged for next Steam launch).
     inline bool updateEnabled = true;

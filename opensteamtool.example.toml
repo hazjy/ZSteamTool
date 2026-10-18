@@ -62,6 +62,13 @@ timeout_recv_ms    = 10000
 # Priority: setStat > stats API when enabled and valid > hardcoded preset SteamID.
 enable_api = true
 
+[presence]
+# 未拥有游戏（addappid 入库）如何显示给好友。
+#   "spacewar" → 改写富状态，让好友看到真实游戏名（默认）
+#   "none"     → 跳过全部好友广播改写：未拥有游戏对好友不可见，-onlinefix
+#                游戏回落到 Spacewar。仅用于排查，正常不需要修改。
+display = "spacewar"
+
 # Lua config directory. When this list is non-empty the kernel scans EXACTLY these
 # directories and nothing else — that is how OSTGUI points the kernel at whatever
 # directory you picked in 设置 → 基本设置 → Lua 路径 (the GUI writes this line for you,

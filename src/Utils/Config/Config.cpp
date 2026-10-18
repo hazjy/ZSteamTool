@@ -19,6 +19,7 @@ namespace {
         std::vector<std::string> remoteUrlTemplates;
         bool remoteForceRefresh = false;
         bool statsEnableApi = true;
+        std::string presenceDisplay = "spacewar";
         bool updateEnabled = true;
         std::vector<InjectDll> injectDlls;
         CloudSettings cloud;
@@ -58,6 +59,7 @@ namespace {
         remoteUrlTemplates     = snapshot.remoteUrlTemplates;
         remoteForceRefresh     = snapshot.remoteForceRefresh;
         statsEnableApi         = snapshot.statsEnableApi;
+        presenceDisplay        = snapshot.presenceDisplay;
         updateEnabled          = snapshot.updateEnabled;
         injectDlls             = snapshot.injectDlls;
         cloudEnabled           = snapshot.cloud.enabled;
@@ -179,6 +181,13 @@ namespace {
             if (auto stats = tbl["stats"].as_table()) {
                 if (auto val = (*stats)["enable_api"].value<bool>()) {
                     snapshot.statsEnableApi = *val;
+                }
+            }
+
+            // [presence]
+            if (auto presence = tbl["presence"].as_table()) {
+                if (auto val = (*presence)["display"].value<std::string>()) {
+                    snapshot.presenceDisplay = *val;
                 }
             }
 
@@ -311,6 +320,11 @@ namespace {
     bool GetStatsEnableApi() {
         std::lock_guard lock(g_mutex);
         return statsEnableApi;
+    }
+
+    bool GetPresenceBroadcastEnabled() {
+        std::lock_guard lock(g_mutex);
+        return presenceDisplay != "none";
     }
 
     bool GetUpdateEnabled() {

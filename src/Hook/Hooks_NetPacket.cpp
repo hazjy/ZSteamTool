@@ -1,5 +1,6 @@
 #include "Hooks_NetPacket.h"
 #include "Utils/SteamMetadata/ManifestClient.h"
+#include "Utils/Config/Config.h"
 #include "Hooks_Misc.h"
 #include "HookMacros.h"
 #include "dllmain.h"
@@ -13,7 +14,9 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <string>
 #include <future>
 #include <mutex>
@@ -748,6 +751,12 @@ namespace Hooks_NetPacket_RichPresence {
     // does not conflate KV state.
     std::unordered_map<AppId_t, std::vector<std::pair<std::string, std::string>>> g_RPKvsByAppId;
 
+    // [presence] display = "none" 时跳过全部好友广播改写，让服务器按原始状态广播；
+    // 其余取值（默认 spacewar）保持现有行为。排障开关，正常不需要改。
+    bool BroadcastEnabled() {
+        return Config::GetPresenceBroadcastEnabled();
+    }
+
     // Walk Steam's binary KV1 stream (a top-level "RP" struct around
     // string KVs) and collect every string KV at any depth.  Type 0x00
     // starts a struct, 0x01 a string KV, 0x08 ends a struct.  String KVs
@@ -883,7 +892,7 @@ namespace Hooks_NetPacket_RichPresence {
         LOG_RICHPRESENCE_DEBUG("RP upload appid={}: kv_bytes={} extracted={} pairs",
             g_PlayingAppId, kv.size(), kvs.size());
 
-        if (BuildInject(g_PlayingAppId)) g_InjectPending = true;
+        if (BroadcastEnabled() && BuildInject(g_PlayingAppId)) g_InjectPending = true;
     }
 
     void TrackSend(const CMsgClientGamesPlayed& msg, const uint8* pHdr, uint32 cbHdr)
@@ -922,6 +931,9 @@ namespace Hooks_NetPacket_RichPresence {
             CloudRedirectHost::NotifyAppRunning(oldTracked, false);
         if (newTracked != 0)
             CloudRedirectHost::NotifyAppRunning(newTracked, true);
+
+        // [presence] display = "none"：运行态跟踪照旧，只是不排广播注入。
+        if (!BroadcastEnabled()) return;
 
         if (newTracked != 0) {
             LOG_RICHPRESENCE_INFO("Tracking topmost appid {}", newTracked);
@@ -1012,6 +1024,9 @@ namespace Hooks_NetPacket_RichPresence {
 
         if (g_PlayingAppId == 0) return false;
 
+        // [presence] display = "none"：只缓存模板（切回来时仍可用），不改进来的推送。
+        if (!BroadcastEnabled()) return false;
+
         ApplyGameFields(msg, selfEntry, g_PlayingAppId);
         g_cbNewBody = static_cast<uint32>(msg.ByteSizeLong());
         if (g_cbNewBody > kMaxBodySize) {
@@ -1058,6 +1073,37 @@ namespace Hooks_NetPacket_RichPresence {
 // ════════════════════════════════════════════════════════════════
 namespace Hooks_NetPacket_OnlineFix {
 
+    // 扫描 <Steam>\userdata\*\config\shortcuts.vdf，取第一个快捷方式的 appid，
+    // 拼成 CGameID（类型 = shortcut，modid = appid）；没有快捷方式时返回 0。
+    // 结果缓存一次：本次会话内不重复读盘。
+    static uint64 FindShortcutGameId()
+    {
+        static uint64 s_cached = 0;
+        static bool   s_tried  = false;
+        if (s_tried) return s_cached;
+        s_tried = true;
+
+        std::error_code ec;
+        const std::string root = std::string(SteamInstallPath) + "\\userdata";
+        for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
+            if (ec || !entry.is_directory()) continue;
+            std::ifstream f(entry.path().string() + "\\config\\shortcuts.vdf", std::ios::binary);
+            if (!f) continue;
+            const std::vector<uint8> data((std::istreambuf_iterator<char>(f)),
+                                          std::istreambuf_iterator<char>());
+            const uint8 marker[] = { 0x02, 'a','p','p','i','d', 0x00 };
+            for (size_t i = 0; i + sizeof(marker) + 4 <= data.size(); ++i) {
+                if (memcmp(&data[i], marker, sizeof(marker)) != 0) continue;
+                uint32 shortcutAppId = 0;
+                memcpy(&shortcutAppId, &data[i + sizeof(marker)], sizeof(shortcutAppId));
+                s_cached = (static_cast<uint64>(shortcutAppId) << 32) | (2ULL << 24);
+                LOG_ONLINEFIX_INFO("Shortcut game_id=0x{:016X}", s_cached);
+                return s_cached;
+            }
+        }
+        return 0;
+    }
+
     bool HandleSend(const uint8* pBody, uint32 cbBody,
                     const uint8* pHdr, uint32 cbHdr)
     {
@@ -1069,6 +1115,10 @@ namespace Hooks_NetPacket_OnlineFix {
         LOG_ONLINEFIX_DEBUG("OnlineFix: original body:\n{}", msg.DebugString());
 
         Hooks_NetPacket_RichPresence::TrackSend(msg, pHdr, cbHdr);
+
+        // [presence] display = "none" 时不做下面的名字广播修饰，报文原样放行，
+        // -onlinefix 游戏在服务器侧显示为 Spacewar。
+        const bool broadcast = Hooks_NetPacket_RichPresence::BroadcastEnabled();
 
         bool patched = false;
         for (int i = 0; i < msg.games_played_size(); ++i) {
@@ -1088,6 +1138,26 @@ namespace Hooks_NetPacket_OnlineFix {
                         LOG_ONLINEFIX_INFO("OnlineFix: {} -> name '{}' (real appid {})",
                             session, name, realAppId);
                     }
+                }
+            }
+        }
+
+        // 富状态：仅 addappid 的单机游戏（没有 -onlinefix 会话）把栈顶 game_id 改写成
+        // 第一个快捷方式的 CGameID，服务器按"非 Steam 游戏"广播，好友侧即可看到游戏名；
+        // 没有快捷方式时退回会话身份。触发面受 RichPresence 跟踪条件限制：只有
+        // "栈顶不是会话身份、且该 appid 在 lua 里配过"时 g_PlayingAppId 才有值。
+        if (!patched && broadcast && msg.games_played_size() > 0) {
+            const AppId_t trackedId = Hooks_NetPacket_RichPresence::g_PlayingAppId;
+            if (trackedId != 0 && trackedId != Hooks_Misc::SessionAppId()) {
+                const std::string name = Hooks_Misc::GetGameNameByAppID(trackedId);
+                if (!name.empty()) {
+                    auto* topGame = msg.mutable_games_played(msg.games_played_size() - 1);
+                    const uint64 shortcutId = FindShortcutGameId();
+                    topGame->set_game_id(shortcutId ? shortcutId : kOnlineFixAppId);
+                    topGame->set_game_extra_info(name);
+                    patched = true;
+                    LOG_ONLINEFIX_INFO("RichPresence: appid {} -> name '{}' (game_id {})",
+                                       trackedId, name, shortcutId ? "shortcut" : "480");
                 }
             }
         }
