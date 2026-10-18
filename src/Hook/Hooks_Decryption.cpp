@@ -1,6 +1,7 @@
 #include "Hooks_Decryption.h"
 #include "HookMacros.h"
 #include "dllmain.h"
+#include <charconv>
 #include <string>
 
 namespace {
@@ -13,22 +14,36 @@ namespace {
             LOG_DECRYPTIONKEY_DEBUG("ConfigStoreGetBinary: captured local ConfigStore at {}", g_pConfigStoreLocal);
 
         }
+        if (!KeyName) return oConfigStoreGetBinary(pObject, eConfigStore, KeyName, Key, KeySize);
         std::string name(KeyName);
         LOG_DECRYPTIONKEY_DEBUG("ConfigStore::GetBinary called for pObject={}, eConfigStore={}, KeyName='{}'", 
                                     pObject, static_cast<uint32>(eConfigStore), name);
         // Expected shape: ".../<DepotId>\DecryptionKey"
         if (size_t last = name.find("\\DecryptionKey"); last != std::string::npos) {
             if (size_t start = name.find_last_of("\\", last - 1); start != std::string::npos) {
-                AppId_t depotId = std::stoul(name.substr(start + 1, last - start - 1));
-                if (const auto& key = LuaConfig::GetDecryptionKey(depotId); !key.empty()) {
-                    if (KeySize >= key.size()) {
-                        LOG_DECRYPTIONKEY_INFO("Providing decryption key for depot {}: {}", depotId,
-                                               spdlog::to_hex(key.data(), key.data() + key.size()));
-                        memcpy(Key, key.data(), key.size());
-                        return static_cast<int32>(key.size());
+                // 键名来自 steamclient，可能形如 "...\<非数字>\DecryptionKey"：
+                // 用 from_chars 而不是 std::stoul —— 后者会抛异常，异常穿过钩子
+                // 等于把 Steam 带走。解析不出来就当不是密钥键，原样放行。
+                const std::string depotPart = name.substr(start + 1, last - start - 1);
+                AppId_t depotId = 0;
+                const auto* first = depotPart.data();
+                const auto* lastCh = depotPart.data() + depotPart.size();
+                const auto parsed = std::from_chars(first, lastCh, depotId);
+                const bool ok = !depotPart.empty() && parsed.ec == std::errc{} && parsed.ptr == lastCh;
+                if (ok) {
+                    if (const auto& key = LuaConfig::GetDecryptionKey(depotId); !key.empty()) {
+                        if (!Key) {
+                            LOG_DECRYPTIONKEY_WARN("Decryption key for depot {} requested with null buffer", depotId);
+                        } else if (KeySize >= key.size()) {
+                            LOG_DECRYPTIONKEY_INFO("Providing decryption key for depot {}: {}", depotId,
+                                                   spdlog::to_hex(key.data(), key.data() + key.size()));
+                            memcpy(Key, key.data(), key.size());
+                            return static_cast<int32>(key.size());
+                        } else {
+                            LOG_DECRYPTIONKEY_WARN("Decryption key for depot {} is too large ({} bytes) for buffer ({} bytes)",
+                                                    depotId, key.size(), KeySize);
+                        }
                     }
-                    LOG_DECRYPTIONKEY_WARN("Decryption key for depot {} is too large ({} bytes) for buffer ({} bytes)",
-                                            depotId, key.size(), KeySize);
                 }
             }
         }
