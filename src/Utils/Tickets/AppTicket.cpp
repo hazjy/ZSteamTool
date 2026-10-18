@@ -6,7 +6,6 @@
 #include "Utils/Logging/Log.h"
 
 namespace AppTicket {
-    constexpr AppId_t kLocalAppTicketSourceAppId = 7;
     constexpr size_t kSteamIdTicketMinimumSize = 16;
 
     static uint64_t GetSteamIDFromCredentialStore(AppId_t appId) {
@@ -40,26 +39,33 @@ namespace AppTicket {
         return ticket;
     }
 
+    // 伪造票的"供体"：原先固定用 AppId 7 的缓存票 —— 7 的票缺失或失效时整条链就断
+    // （表现为非 Denuvo 假入库游戏启动即 54）。按可靠性依次试：228980（Steamworks
+    // 运行库，几乎必有）、480（Spacewar）、7（旧供体，保留兼容）。
+    // upstream 8b4f5e0 走了 provider 注入 + 基线梯度的写法，这里只要梯度，不引入那层间接。
+    constexpr AppId_t kSourceAppIdLadder[] = { 228980, 480, 7 };
+
     // Exploit steamdrmp's off-by-four ticket parsing vulnerability:
     static std::vector<uint8_t> ForgeLocalAppOwnershipTicket(AppId_t appId) {
-        std::vector<uint8_t> source = Hooks_Decryption::GetCacheAppOwnershipTicket(kLocalAppTicketSourceAppId);
-        if (source.size() <= kAppTicketSignatureSize) {
-            LOG_DEBUG("ForgeLocalAppOwnershipTicket for AppId {}: no source appticket", appId);
-            return {};
+        for (AppId_t sourceAppId : kSourceAppIdLadder) {
+            std::vector<uint8_t> source = Hooks_Decryption::GetCacheAppOwnershipTicket(sourceAppId);
+            if (source.size() <= kAppTicketSignatureSize) continue;
+
+            const size_t signedSize = source.size() - kAppTicketSignatureSize;
+            std::vector<uint8_t> ticket;
+            ticket.reserve(source.size() + sizeof(AppId_t));
+            ticket.insert(ticket.end(), source.begin(), source.begin() + signedSize);
+
+            const uint8_t* appIdBytes = reinterpret_cast<const uint8_t*>(&appId);
+            ticket.insert(ticket.end(), appIdBytes, appIdBytes + sizeof(AppId_t));
+            ticket.insert(ticket.end(), source.begin() + signedSize, source.end());
+
+            LOG_INFO("Forged App Ownership Ticket, AppId: {}, SourceAppId: {}, Physical Size: {}, Total Size: {}",
+                     appId, sourceAppId, ticket.size(), source.size());
+            return ticket;
         }
-
-        const size_t signedSize = source.size() - kAppTicketSignatureSize;
-        std::vector<uint8_t> ticket;
-        ticket.reserve(source.size() + sizeof(AppId_t));
-        ticket.insert(ticket.end(), source.begin(), source.begin() + signedSize);
-
-        const uint8_t* appIdBytes = reinterpret_cast<const uint8_t*>(&appId);
-        ticket.insert(ticket.end(), appIdBytes, appIdBytes + sizeof(AppId_t));
-        ticket.insert(ticket.end(), source.begin() + signedSize, source.end());
-
-        LOG_INFO("Forged App Ownership Ticket, AppId: {}, SourceAppId: {}, Physical Size: {}, Total Size: {}",
-                 appId, kLocalAppTicketSourceAppId, ticket.size(), source.size());
-        return ticket;
+        LOG_DEBUG("ForgeLocalAppOwnershipTicket for AppId {}: no source appticket", appId);
+        return {};
     }
 
     bool GetAppOwnershipTicket(AppId_t appId, AppOwnershipTicket& ticket, AppTicketSource source) {
