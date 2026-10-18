@@ -37,7 +37,15 @@ struct Watch::Impl {
 
     void Close() {
         if (dir) {
-            CancelIo(dir.get());
+            // CancelIo 只取消「调用线程」发起的 I/O，而读取是 watcher 线程发起的：
+            // 从别的线程关闭时它不做任何事，随后关句柄、清缓冲，内核仍可能往已释放的
+            // 缓冲里写入（use-after-free）。CancelIoEx 才跨线程有效，并且要等这次读
+            // 真正结束再释放缓冲。
+            CancelIoEx(dir.get(), &overlapped);
+            if (readPending) {
+                DWORD ignored = 0;
+                GetOverlappedResult(dir.get(), &overlapped, &ignored, TRUE);
+            }
         }
         dir.Reset();
         event.Reset();
@@ -49,7 +57,10 @@ struct Watch::Impl {
 };
 
 Watch::Watch() : impl_(std::make_unique<Impl>()) {}
-Watch::~Watch() = default;
+Watch::~Watch() {
+    // 默认析构会直接关句柄，pending 的读仍可能落进已释放的缓冲。
+    if (impl_) impl_->Close();
+}
 Watch::Watch(Watch&&) noexcept = default;
 Watch& Watch::operator=(Watch&&) noexcept = default;
 
@@ -120,8 +131,19 @@ std::vector<Change> Watch::Drain() {
     if (!IsOpen() || !impl_->readPending) return changes;
 
     DWORD bytesReturned = 0;
-    if (!GetOverlappedResult(impl_->dir.get(), &impl_->overlapped, &bytesReturned, FALSE) ||
-        bytesReturned == 0) {
+    if (!GetOverlappedResult(impl_->dir.get(), &impl_->overlapped, &bytesReturned, FALSE)) {
+        const DWORD err = GetLastError();
+        if (err == ERROR_IO_INCOMPLETE) {
+            // 这次读尚未完成：保持 readPending，避免调用方拿同一个 OVERLAPPED
+            // 和缓冲区再发一次（会与在飞的那次互相踩）。
+            return changes;
+        }
+        OSTP_LOG_WARN("DirectoryWatch: overlapped read failed for '{}' (error={})",
+                      impl_->directory, err);
+        impl_->readPending = false;
+        return changes;
+    }
+    if (bytesReturned == 0) {
         impl_->readPending = false;
         return changes;
     }
