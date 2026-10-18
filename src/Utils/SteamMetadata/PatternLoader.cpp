@@ -149,18 +149,16 @@ static void ShowDownloadFailedPopup(const std::string& dllName,
                                     const std::string& component)
 {
     SteamDiagnostics::ShowWarning(
-        "OpenSteamTool - Unsupported Steam Version",
-        "OpenSteamTool: signature file not found for " + dllName + ".\n\n"
-        "Hooks that depend on " + dllName + " are disabled for this session; "
-        "other modules are unaffected.\n\n"
-        "You can:\n"
-        "  1. Wait for the next signature update, then restart Steam.\n"
-        "  2. Drop a matching TOML at:\n"
+        "内核：未找到该 Steam 版本的签名表",
+        "签名文件缺失：" + dllName + "\n\n"
+        "依赖 " + dllName + " 的钩子已在本次会话内停用，其它模块不受影响。\n\n"
+        "可以这样处理：\n"
+        "  1. 先重启一次 Steam —— 内置镜像链会自动重取（首选 git.lua.tools，其次 mmxlyo / 其它兜底）。\n"
+        "  2. 若刚更新过 Steam，等镜像方发布对应版本的表（通常数小时到一天）。\n"
+        "  3. 想强制重取：在 opensteamtool.toml 的 [remote] 段加 force_refresh = true 后重启 Steam。\n"
+        "  4. 也可以手工放入匹配的表：\n"
         "       <Steam>\\opensteamtool\\pattern\\" + component + "\\" + sha256 + ".toml\n"
-        "  3. Check upstream:\n"
-        "       https://github.com/OpenSteam001/steam-monitor/tree/pattern/" + component + "\n"
-        "  4. Report the diagnostics below:\n"
-        "       https://github.com/OpenSteam001/OpenSteamTool/issues");
+        "  5. 反馈与排查：https://github.com/hazjy/ZSteamTool");
 }
 
 } // namespace
@@ -289,13 +287,14 @@ void ReportMissingFunctions()
     g_missingFunctions.clear();
 
     SteamDiagnostics::ShowWarning(
-        "OpenSteamTool - Missing Signatures",
-        "OpenSteamTool: some functions could not be located.\n\n"
-        "The following functions were not found in the signature file:\n" +
+        "内核：部分签名未命中",
+        "有函数没能在签名表里定位到。\n\n"
+        "下列函数未在签名文件中找到：\n" +
         list +
-        "\nHooks for these functions are disabled for this session.\n\n"
-        "Please report this at:\n"
-        "https://github.com/OpenSteam001/OpenSteamTool/issues");
+        "\n依赖它们的钩子已在本次会话内停用，其它功能不受影响。\n\n"
+        "常见原因：Steam 客户端刚更新过多（镜像还没 publish 对应版本的表），"
+        "或该版本的部分函数签名发生了变化。\n"
+        "反馈与排查：https://github.com/hazjy/ZSteamTool");
 }
 
 } // namespace PatternLoader

@@ -139,16 +139,15 @@ namespace {
     static void ShowMissingPopup(const std::string& sha256)
     {
         SteamDiagnostics::ShowWarning(
-            "OpenSteamTool - IPC spec missing",
-            "OpenSteamTool: IPC spec file not found.\n\n"
-            "IPC interception is disabled for this session; pattern-based "
-            "hooks are unaffected.\n\n"
-            "You can:\n"
-            "  1. Wait for the next upstream publish and restart Steam.\n"
-            "  2. Drop a matching TOML at:\n"
+            "内核：缺少 IPC 表",
+            "没有找到本版本 Steam 的 IPC 表文件。\n\n"
+            "IPC 拦截在本次会话内停用（票据相关功能不可用）；基于签名的钩子不受影响。\n\n"
+            "可以这样处理：\n"
+            "  1. 重启一次 Steam —— 内置镜像链会自动重取。\n"
+            "  2. 刚更新过 Steam 的话，等镜像方发布对应版本的表。\n"
+            "  3. 手工放入匹配的表：\n"
             "       <Steam>\\opensteamtool\\ipc\\steamclient\\" + sha256 + ".toml\n"
-            "  3. Check upstream:\n"
-            "       https://github.com/OpenSteam001/steam-monitor/tree/ipc/steamclient");
+            "  4. 反馈与排查：https://github.com/hazjy/ZSteamTool");
     }
 
 } // namespace

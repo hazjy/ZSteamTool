@@ -124,8 +124,14 @@ mode = "normal"
 #
 # 缓存优先：签名表按客户端 DLL 的 SHA-256 命名（内容寻址），同哈希的本地缓存与远端
 # 内容等价 —— 命中缓存时内核不再联网，只有换客户端（哈希变化）、首次安装时才取表。
+# 缓存内容被判为坏表（解析出 0 条目 / 缺必需接口）时会自动丢弃并重取一次。
 # 需要强制刷新（例如怀疑缓存被改坏）时把下面这行打开，取完记得关掉。
 # force_refresh = false
+#
+# 内置镜像链（按顺序试，任一 404 就继续下一个）：
+#   1) git.lua.tools/luatools/steam-monitor（自动跟版，首选）
+#   2) raw.githubusercontent.com/mmxlyo/steam-monitor（活跃 fork 的表仓库，兜底）
+#   3) OpenSteam001 / madoiscool 的两份 GitHub raw + jsDelivr（上游已停更，仅作末位兜底）
 
 [onlinefix]
 # 环境变量会话（GUI「联机」页的宿主启动路线：OnlineHost 给游戏进程设
