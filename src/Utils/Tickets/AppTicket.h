@@ -9,6 +9,9 @@ namespace AppTicket {
     inline constexpr uint32 kAppTicketSteamIdOffset = 8;
     inline constexpr uint32 kAppTicketAppIdOffset = 16;
     inline constexpr uint32 kAppTicketSignatureSize = 128;
+    // 一张能让 SteamStub 读懂的最小票：至少要把 appid 包进去。
+    // 低于这个长度的票按正常偏移交付会让游戏读到界外，外壳直接报 54。
+    inline constexpr uint32 kAppTicketMinimumValidSize = kAppTicketAppIdOffset + sizeof(AppId_t);
 
     enum class AppTicketSource {
         CredentialStoreOnly,

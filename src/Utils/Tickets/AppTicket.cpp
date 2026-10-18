@@ -52,6 +52,8 @@ namespace AppTicket {
             if (source.size() <= kAppTicketSignatureSize) continue;
 
             const size_t signedSize = source.size() - kAppTicketSignatureSize;
+            // 供体签名前的内容太短时，伪造出来的票连 appid 都装不下，游戏读不了。
+            if (signedSize < kAppTicketMinimumValidSize) continue;
             std::vector<uint8_t> ticket;
             ticket.reserve(source.size() + sizeof(AppId_t));
             ticket.insert(ticket.end(), source.begin(), source.begin() + signedSize);
@@ -73,13 +75,27 @@ namespace AppTicket {
         
         if (source == AppTicketSource::CredentialStoreOnly || source == AppTicketSource::CredentialStoreThenForge) {
             ticket.data = GetAppOwnershipTicketFromCredentialStore(appId);
-            if (!ticket.data.empty() && ticket.data.size() >= sizeof(uint32)) {
+            // 只判"非空且至少 4 字节"是不够的：凭据库里的票可能偏短或首 4 字节被写坏，
+            // 那样按下面的正常偏移交给游戏，游戏会读到界外 —— SteamStub 直接报 54。
+            // 因此要求长度够装下 appid，且签名偏移/长度确实落在票内。
+            if (!ticket.data.empty() && ticket.data.size() >= kAppTicketMinimumValidSize) {
                 ticket.totalSize = static_cast<uint32>(ticket.data.size());
                 ticket.appIdOffset = kAppTicketAppIdOffset;
                 ticket.steamIdOffset = kAppTicketSteamIdOffset;
                 ticket.signatureOffset = *reinterpret_cast<const uint32*>(ticket.data.data());
                 ticket.signatureSize = kAppTicketSignatureSize;
-                return true;
+                const bool boundsOk =
+                    ticket.signatureOffset <= ticket.totalSize &&
+                    ticket.signatureSize <= ticket.totalSize - ticket.signatureOffset &&
+                    (ticket.appIdOffset + sizeof(AppId_t)) <= ticket.totalSize;
+                if (boundsOk) return true;
+                LOG_WARN("AppTicket: corrupted ticket bounds for appId={} (size={}, sigOffset={}, sigSize={}), discarding",
+                         appId, ticket.totalSize, ticket.signatureOffset, ticket.signatureSize);
+                ticket = {};
+            } else if (!ticket.data.empty()) {
+                LOG_WARN("AppTicket: ticket for appId={} too short ({} bytes, need {}), discarding",
+                         appId, ticket.data.size(), kAppTicketMinimumValidSize);
+                ticket = {};
             }
         }
 
