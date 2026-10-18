@@ -109,20 +109,40 @@
 #pragma comment(linker, "/EXPORT:#187=DWMAPI.#187,@187,NONAME")
 
 // Only inject when the host process is steam.exe (case-insensitive).
-// LoadLibraryA itself guarantees that OpenSteamTool.dll's DllMain
-// runs at most once per process, so multiple hijack DLLs can safely
-// call this without additional synchronisation.
-BOOL OpenSteamToolLoad()
+// Load strategy (hardened against the failure modes seen in active forks):
+//   1) unusable host name / not steam.exe -> behave as a plain forwarder, return;
+//   2) payload already loaded by another loader -> return (no double LoadLibrary,
+//      which is the classic route into a loader-lock deadlock);
+//   3) load the payload from THIS proxy's own directory (absolute path), so neither
+//      the DLL search order nor the current working directory can change the result;
+//   4) never bubble a failure up: DllMain must not fail, otherwise a missing payload
+//      would also take down this system DLL (and with it steam.exe startup).
+BOOL OpenSteamToolLoad(HMODULE selfModule)
 {
     char exePath[MAX_PATH];
-    if (GetModuleFileNameA(NULL, exePath, MAX_PATH))
-    {
-        const char* exeName = strrchr(exePath, '\\');
-        exeName = exeName ? exeName + 1 : exePath;
-        if (_stricmp(exeName, "steam.exe") != 0)
-            return TRUE;   // not Steam — let the proxy load, but don't inject
-    }
-    return LoadLibraryA("OpenSteamTool.dll") != NULL;
+    const DWORD exeLen = GetModuleFileNameA(NULL, exePath, MAX_PATH);
+    if (exeLen == 0 || exeLen >= MAX_PATH)
+        return TRUE;
+    const char* exeName = strrchr(exePath, '\\');
+    exeName = exeName ? exeName + 1 : exePath;
+    if (_stricmp(exeName, "steam.exe") != 0)
+        return TRUE;   // not Steam — let the proxy load, but don't inject
+
+    if (::GetModuleHandleA("OpenSteamTool.dll") != nullptr)
+        return TRUE;   // already injected by another loader
+
+    char selfPath[MAX_PATH + 32] = {};
+    const DWORD selfLen = GetModuleFileNameA(selfModule, selfPath, MAX_PATH);
+    if (selfLen == 0 || selfLen >= MAX_PATH)
+        return TRUE;
+    char* slash = strrchr(selfPath, '\\');
+    if (!slash)
+        return TRUE;
+    const size_t tailBytes = sizeof(selfPath) - static_cast<size_t>(slash + 1 - selfPath);
+    if (strcpy_s(slash + 1, tailBytes, "OpenSteamTool.dll") != 0)
+        return TRUE;
+    ::LoadLibraryA(selfPath);   // failure only means "not injected"; the host keeps running
+    return TRUE;
 }
 
 
@@ -133,8 +153,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, PVOID pvReserved)
     case DLL_PROCESS_ATTACH:
         {
             DisableThreadLibraryCalls(hModule);
-            if ( !OpenSteamToolLoad() )
-                return FALSE;
+            OpenSteamToolLoad(hModule);
             break;
         }
     case DLL_THREAD_ATTACH:

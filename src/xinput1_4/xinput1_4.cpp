@@ -120,14 +120,27 @@ extern "C" {
 }
 
 // ─── 4. OpenSteamTool Injection ───────────────────────────────────
-BOOL OpenSteamToolLoad() {
+// Same rules as the dwmapi proxy: idempotent, load the payload from this proxy's own
+// directory (absolute path), and never let a failure reach DllMain.
+BOOL OpenSteamToolLoad(HMODULE selfModule) {
     char exePath[MAX_PATH];
-    if (GetModuleFileNameA(NULL, exePath, MAX_PATH)) {
-        const char* exeName = strrchr(exePath, '\\');
-        exeName = exeName ? exeName + 1 : exePath;
-        if (_stricmp(exeName, "steam.exe") != 0) return TRUE;
-    }
-    return LoadLibraryA("OpenSteamTool.dll") != NULL;
+    const DWORD exeLen = GetModuleFileNameA(NULL, exePath, MAX_PATH);
+    if (exeLen == 0 || exeLen >= MAX_PATH) return TRUE;   // unusable host name -> forwarder only
+    const char* exeName = strrchr(exePath, '\\');
+    exeName = exeName ? exeName + 1 : exePath;
+    if (_stricmp(exeName, "steam.exe") != 0) return TRUE;
+
+    if (::GetModuleHandleA("OpenSteamTool.dll") != nullptr) return TRUE;   // already injected
+
+    char selfPath[MAX_PATH + 32] = {};
+    const DWORD selfLen = GetModuleFileNameA(selfModule, selfPath, MAX_PATH);
+    if (selfLen == 0 || selfLen >= MAX_PATH) return TRUE;
+    char* slash = strrchr(selfPath, '\\');
+    if (!slash) return TRUE;
+    const size_t tailBytes = sizeof(selfPath) - static_cast<size_t>(slash + 1 - selfPath);
+    if (strcpy_s(slash + 1, tailBytes, "OpenSteamTool.dll") != 0) return TRUE;
+    ::LoadLibraryA(selfPath);   // failure only means "not injected"; DllMain stays successful
+    return TRUE;
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, PVOID pvReserved) {
@@ -135,7 +148,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, PVOID pvReserved) {
     case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(hModule);
         LoadRealXInput();
-        if (!OpenSteamToolLoad()) return FALSE;
+        OpenSteamToolLoad(hModule);
         break;
     }
     return TRUE;
