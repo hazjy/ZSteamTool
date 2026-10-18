@@ -4,6 +4,9 @@
 #include "dllmain.h"
 #include "OSTPlatform/include/Process.h"
 
+#include <algorithm>
+#include <cctype>
+#include <string_view>
 #include <thread>
 #include <windows.h>
 
@@ -169,10 +172,36 @@ namespace {
         return v == 0 ? kOnlineFixAppId : static_cast<AppId_t>(v);
     }
 
+    // 判断这次 spawn 是否属于 Steam 的伴生进程（覆盖层、崩溃上报、运行库安装）。
+    // 它们同样走 CUser::SpawnProcess、同样不带 -onlinefix，此前会把会话状态一并清掉，
+    // 导致联机中途失效且不留任何日志。
+    static bool ContainsIgnoreCase(const char* text, std::string_view needle) {
+        if (!text || needle.empty()) return false;
+        const std::string_view hay(text);
+        const auto it = std::search(hay.begin(), hay.end(), needle.begin(), needle.end(),
+            [](char a, char b) {
+                return std::tolower(static_cast<unsigned char>(a)) ==
+                       std::tolower(static_cast<unsigned char>(b));
+            });
+        return it != hay.end();
+    }
+
+    static bool IsCompanionSpawn(AppId_t appId, const char* exePath, const char* cmdLine) {
+        constexpr AppId_t kSteamworksCommonRedistAppId = 228980;
+        if (appId == 0 || appId == kSteamworksCommonRedistAppId || appId == kOnlineFixAppId)
+            return true;
+        return ContainsIgnoreCase(exePath, "GameOverlayUI.exe") ||
+               ContainsIgnoreCase(cmdLine,  "GameOverlayUI.exe") ||
+               ContainsIgnoreCase(exePath, "steamerrorreporter") ||
+               ContainsIgnoreCase(cmdLine,  "steamerrorreporter");
+    }
+
     static void OnSpawnProcessHit(OSTPlatform::Trap::Context& ctx, const VehCommon::Int3Site& /*site*/) {
         CGameID* pGameID = VehCommon::GetArg<CGameID*>(ctx, 5);
+        if (!pGameID) return;   // 参数缺失时放手，不做任何状态改写
         AppId_t appId = static_cast<AppId_t>(pGameID->AppID(true));
         const char* cmdLine = VehCommon::GetArg<const char*>(ctx, 3);
+        const char* exePath = VehCommon::GetArg<const char*>(ctx, 2);
 
         if (cmdLine && strstr(cmdLine, "-onlinefix"))
         {
@@ -187,11 +216,14 @@ namespace {
             pGameID->SetAppID(g_SessionAppId);
             LOG_MISC_INFO("SpawnProcess: appid {} -> {} (session), realappid={}, cmd=\"{}\"",
                           appId, g_SessionAppId, g_SuppressAppIdFlip, cmdLine);
-        } else {
+        } else if (!IsCompanionSpawn(appId, exePath, cmdLine)) {
             g_OnlineFixRealAppId = 0;
             g_SuppressAppIdFlip = false;
             g_SessionAppId = kOnlineFixAppId;
             g_OnlineFixGamePid = 0;
+        } else {
+            LOG_MISC_DEBUG("SpawnProcess: companion spawn (appid {}, exe '{}') — session state kept",
+                           appId, exePath ? exePath : "?");
         }
     }
 
@@ -453,8 +485,13 @@ namespace Hooks_Misc {
             // Returns strlen+1 on success, -1 on failure.
             int64 len = oGetAppDataFromAppInfo(g_pCAppInfoCache, appId, "common/name",
                 reinterpret_cast<uint8*>(buf), sizeof(buf));
-            if (len > 1)
-                name.assign(buf, static_cast<size_t>(len - 1));
+            if (len > 1) {
+                // 返回的是 strlen+1；名字可能比 buf 长，夹紧后再 assign，
+                // 否则会按长度读到栈缓冲之外（得到越界读与垃圾名字）。
+                const size_t maxLen = sizeof(buf) - 1;
+                const size_t nameLen = std::min<size_t>(static_cast<size_t>(len - 1), maxLen);
+                name.assign(buf, nameLen);
+            }
         }
 
         LOG_MISC_DEBUG("GetGameNameByAppID({}): {}", appId, name);
