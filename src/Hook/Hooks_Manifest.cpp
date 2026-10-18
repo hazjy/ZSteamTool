@@ -42,6 +42,25 @@ namespace {
 
         if (!result) return result;
 
+        // Steam 在 appinfo 被 PICS 刷新的窗口内会短时对某个 app 返回 0 个 depot
+        // （旧集合先被丢掉、新集合还没落地）。调用方会把这份空列表当结果存成
+        // depot 配置，更新任务随后读到 "0 active: 0 target"、什么都没下却把 app
+        // 标成 Fully Installed —— 即"入库后秒完成 / 0 mounted depots"的根因。
+        // 对 lua 里声明过 depot 的 app 直接让调用失败，Steam 会保留原有配置，
+        // 等 appinfo 落地后的下一轮再正常构建。
+        //
+        // 只判 pDepotInfo：pSharedDepotInfo 装的是别的 app 的 depot
+        // （sharedinstall / depotfromapp 重定向），拿它判会把空集合放过去。
+        if (AppId != 0 &&
+            (!pDepotInfo || pDepotInfo->m_Size == 0) &&
+            LuaConfig::HasDepot(AppId, false))
+        {
+            LOG_MANIFEST_WARN("BuildDepotDependency: app {} returned 0 depots "
+                "(appinfo mid-refresh) — failing the call so Steam keeps its "
+                "existing depot config instead of storing an empty one", AppId);
+            return false;
+        }
+
         const auto& overrides = LuaConfig::GetManifestOverrides();
         if (overrides.empty()) return result;
 
