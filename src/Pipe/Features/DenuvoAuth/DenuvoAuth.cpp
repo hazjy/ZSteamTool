@@ -1,6 +1,7 @@
 #include "Pipe/Features/DenuvoAuth/DenuvoAuth.h"
 
 #include "Pipe/Features/DenuvoAuth/ProtectionScan.h"
+#include "Hook/Hooks_Package.h"
 #include "Utils/Logging/Log.h"
 #include "Utils/Tickets/AppTicket.h"
 #include "Utils/Config/Config.h"
@@ -111,7 +112,9 @@ namespace {
                 // 下次启动游戏看到的 SteamID 就变了，用户数据随之换目录）。
                 // 身份的唯一来源 = 导入的票据本身；compat 保留 BST 行为。
                 if (Config::GetDenuvoMode() == Config::DenuvoMode::Compat &&
-                    LuaConfig::IsOwned(authorizedAppId)) {
+                    Hooks_Package::HasValidLicense(authorizedAppId)) {
+                    // 有效许可（真拥有或家庭共享）才持久化身份。只认 IsOwned 会把
+                    // 家庭共享来的 D 加密游戏排除在外，收尾阶段身份不一致 → 54。
                     WriteSteamIdOnEndAuthorization();
                 }
             }

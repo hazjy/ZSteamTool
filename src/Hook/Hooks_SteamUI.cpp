@@ -1,4 +1,5 @@
 #include "Hooks_SteamUI.h"
+#include "Hooks_Package.h"
 #include "HookManager.h"
 #include "HookMacros.h"
 #include "dllmain.h"
@@ -67,9 +68,11 @@ namespace
             }
             for (AppId_t appId : draining)
             {
-                if (LuaConfig::IsOwned(appId))
+                // 有有效许可（真拥有或家庭共享）的 App 不从库里移除：
+                // 它的许可来自账号，lua 只是补充 depot，删 lua 不该让它消失。
+                if (Hooks_Package::HasValidLicense(appId))
                 {
-                    LOG_STEAMUI_DEBUG("RunFrame: appId {} is owned again, skipping removal", appId);
+                    LOG_STEAMUI_DEBUG("RunFrame: appId {} still has a valid license, skipping removal", appId);
                     continue;
                 }
                 if (CSteamApp *pApp = oGetAppByID(g_pController, appId, false))
@@ -80,6 +83,8 @@ namespace
                         std::lock_guard<std::mutex> lock(g_removalMutex);
                         g_removedAppIds.insert(appId);
                     }
+
+                    LOG_STEAMUI_INFO("RunFrame: removing appId {}", appId);
 
                     // MarkAppChange 必须在 pApp 非空之后调：app 还没进 steamui 的
                     // CSteamApp 表时（GetAppByID(bCreate=false) 返回 null）通知变更
