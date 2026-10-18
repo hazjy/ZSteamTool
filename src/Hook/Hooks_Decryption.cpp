@@ -1,30 +1,37 @@
 #include "Hooks_Decryption.h"
 #include "HookMacros.h"
 #include "dllmain.h"
+#include <atomic>
 #include <charconv>
 #include <string>
 
 namespace {
 
-    void* g_pConfigStoreLocal = nullptr;
+    // 这个指针被两条线程读（钩子线程与 ReadConfigStoreLocalBinary 的调用方），
+    // 原先是无同步裸写 —— 用 atomic 即可，不需要锁。
+    std::atomic<void*> g_pConfigStoreLocal{nullptr};
 
     HOOK_FUNC(ConfigStoreGetBinary, int32, void* pObject, EConfigStore eConfigStore, const char* KeyName, char* Key, uint32 KeySize) {
-        if (eConfigStore == k_EConfigStoreUserLocal && pObject && !g_pConfigStoreLocal) {
-            g_pConfigStoreLocal = pObject;
-            LOG_DECRYPTIONKEY_DEBUG("ConfigStoreGetBinary: captured local ConfigStore at {}", g_pConfigStoreLocal);
+        if (eConfigStore == k_EConfigStoreUserLocal && pObject &&
+            !g_pConfigStoreLocal.load(std::memory_order_relaxed)) {
+            g_pConfigStoreLocal.store(pObject, std::memory_order_release);
+            LOG_DECRYPTIONKEY_DEBUG("ConfigStoreGetBinary: captured local ConfigStore at {}", pObject);
 
         }
         if (!KeyName) return oConfigStoreGetBinary(pObject, eConfigStore, KeyName, Key, KeySize);
         std::string name(KeyName);
         LOG_DECRYPTIONKEY_DEBUG("ConfigStore::GetBinary called for pObject={}, eConfigStore={}, KeyName='{}'", 
                                     pObject, static_cast<uint32>(eConfigStore), name);
-        // Expected shape: ".../<DepotId>\DecryptionKey"
-        if (size_t last = name.find("\\DecryptionKey"); last != std::string::npos) {
-            if (size_t start = name.find_last_of("\\", last - 1); start != std::string::npos) {
+        // Expected shape: "...\<DepotId>\DecryptionKey"（'/' 分隔同样接受）
+        const size_t keyPos = name.rfind("DecryptionKey");
+        if (keyPos != std::string::npos && keyPos > 0 &&
+            (name[keyPos - 1] == '\\' || name[keyPos - 1] == '/')) {
+            const size_t sep = keyPos - 1;
+            if (size_t start = name.find_last_of("\\/", sep > 0 ? sep - 1 : 0); start != std::string::npos) {
                 // 键名来自 steamclient，可能形如 "...\<非数字>\DecryptionKey"：
                 // 用 from_chars 而不是 std::stoul —— 后者会抛异常，异常穿过钩子
                 // 等于把 Steam 带走。解析不出来就当不是密钥键，原样放行。
-                const std::string depotPart = name.substr(start + 1, last - start - 1);
+                const std::string depotPart = name.substr(start + 1, sep - start - 1);
                 AppId_t depotId = 0;
                 const auto* first = depotPart.data();
                 const auto* lastCh = depotPart.data() + depotPart.size();
@@ -51,13 +58,14 @@ namespace {
     }
 
     std::vector<uint8_t> ReadConfigStoreLocalBinary(const std::string& keyName) {
-        if (!g_pConfigStoreLocal || !oConfigStoreGetBinary) {
+        void* const configStore = g_pConfigStoreLocal.load(std::memory_order_acquire);
+        if (!configStore || !oConfigStoreGetBinary) {
             LOG_DECRYPTIONKEY_WARN("GetConfigStoreLocalBinary: ConfigStoreGetBinary not ready, cannot get binary value");
             return {};
         }
 
         std::vector<uint8_t> value(1024);
-        int32 result = oConfigStoreGetBinary(g_pConfigStoreLocal, k_EConfigStoreUserLocal,
+        int32 result = oConfigStoreGetBinary(configStore, k_EConfigStoreUserLocal,
                                              keyName.c_str(),
                                              reinterpret_cast<char*>(value.data()),
                                              static_cast<uint32>(value.size()));
