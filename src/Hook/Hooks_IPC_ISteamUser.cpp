@@ -91,6 +91,19 @@ namespace {
             return;
         }
 
+        // steamclient 回"最小失败响应"时 m_Put 很小，直接构造响应会 Fits() 失败、
+        // 补丁被静默丢弃（游戏侧永远拿不到 OK）。写之前先保证容量够。
+        const uint32 ticketExtCapacity = static_cast<uint32>(sizeof(uint32))       // EIPCResult
+                                       + static_cast<uint32>(sizeof(uint32))       // returnValue
+                                       + static_cast<uint32>(req.cbMaxTicket())    // pTicket
+                                       + static_cast<uint32>(sizeof(uint32) * 4);  // 四个偏移/长度
+        if (pWrite && pWrite->m_Put < static_cast<int>(ticketExtCapacity)) {
+            if (!Hooks_Misc::EnsureBufferCapacity(pWrite, ticketExtCapacity, true)) {
+                LOG_IPC_DEBUG("GetAppOwnershipTicketExtendedData: AppId={} - failed to ensure buffer size", appId);
+                return;
+            }
+        }
+
         GetAppOwnershipTicketExtendedDataResp resp{pWrite, static_cast<size_t>(req.cbMaxTicket())};
         if (!resp.ok()) return;
 
