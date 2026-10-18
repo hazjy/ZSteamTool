@@ -80,9 +80,12 @@ namespace
                         std::lock_guard<std::mutex> lock(g_removalMutex);
                         g_removedAppIds.insert(appId);
                     }
+
+                    // MarkAppChange 必须在 pApp 非空之后调：app 还没进 steamui 的
+                    // CSteamApp 表时（GetAppByID(bCreate=false) 返回 null）通知变更
+                    // 会撞上 steamui 的未初始化断言，留下 assert_steam.*.dmp。
+                    oMarkAppChange(g_pAppChangeSource, appId, EAppChangeFlags::AppInfoOrConfig);
                 }
-                
-                oMarkAppChange(g_pAppChangeSource, appId, EAppChangeFlags::AppInfoOrConfig);
             }
         }
         return oCSteamUIAppControllerRunFrame(pController);
