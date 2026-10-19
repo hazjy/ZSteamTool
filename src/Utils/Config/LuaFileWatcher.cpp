@@ -218,4 +218,14 @@ void Stop() {
     }
 }
 
+void Detach() {
+    // 进程退出路径：次级线程已被系统终止，此时 join 会挂死。只置停止标志并 detach，
+    // 让静态析构看到线程不可 join —— 否则 ~thread() 会对 joinable 线程调
+    // std::terminate()，表现为退出时 "abort() has been called"。
+    g_running = false;
+    if (g_watcherThread.joinable()) {
+        g_watcherThread.detach();
+    }
+}
+
 } // namespace LuaFileWatcher

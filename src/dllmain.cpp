@@ -158,10 +158,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, PVOID pvReserved)
     }
     else if (dwReason == DLL_PROCESS_DETACH && IsSteamHost())
     {
-        // pvReserved != nullptr 表示进程正在退出：此时次级线程已被系统终止，
-        // 再去 Stop watcher / 跑反挂，等于在 loader lock 下等一个已死的线程，
-        // 退出偶发挂死或 abort。进程退出不需要清理，直接放手交给系统。
-        if (pvReserved) return TRUE;
+        // pvReserved != nullptr 表示进程正在退出：次级线程已被系统终止，不能再 join。
+        // 但也不能什么都不做 —— 两个 watcher 的 std::thread 是静态对象，若仍是 joinable，
+        // 静态析构时 ~thread() 会调 std::terminate() → abort()（Debug 版弹 "abort() has been called"）。
+        // 因此这条路径只 detach，不 Stop。
+        if (pvReserved) {
+            ConfigFileWatcher::Detach();
+            LuaFileWatcher::Detach();
+            return TRUE;
+        }
 
         ConfigFileWatcher::Stop();
         LuaFileWatcher::Stop();

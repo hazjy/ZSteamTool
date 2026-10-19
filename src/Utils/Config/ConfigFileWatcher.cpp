@@ -152,4 +152,12 @@ void Stop() {
     }
 }
 
+void Detach() {
+    // 同 LuaFileWatcher::Detach：进程退出时只 detach，避免 ~thread() 调 terminate。
+    g_running = false;
+    if (g_watcherThread.joinable()) {
+        g_watcherThread.detach();
+    }
+}
+
 } // namespace ConfigFileWatcher
