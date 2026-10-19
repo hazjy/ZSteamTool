@@ -1,5 +1,7 @@
 # ZSteamTool v1.1.5
 
+> 适用版本：v1.1.5（对比 v1.1.4）
+
 ## 新增
 
 - **联机会话**：`opensteamtool.toml` 中 `[onlinefix] env_session = true`（默认开），GUI「联机」页选「宿主会话」启动即可走 Steam 官方大厅。
@@ -35,3 +37,9 @@
 - 目录监听改为跨线程取消并等待读取结束：修复退出或重载瞬间的释放后使用。
 - 覆盖层、崩溃上报、Steamworks 运行库等伴生进程拉起时不再清除联机会话。
 - Steam 安装目录按宿主 exe 定位；两个代理垫片加固（重复加载幂等、按自身目录绝对路径加载、失败不连累宿主）。
+
+## 升级方式
+
+- 完全退出 Steam（托盘图标也要退出）。
+- 把 `Release\` 里的 `OpenSteamTool.dll`、`dwmapi.dll`、`xinput1_4.dll` 覆盖到 Steam 根目录（`steam.exe` 所在文件夹），覆盖前先备份原文件。
+- 重新启动 Steam。配置模板 `opensteamtool.toml` 可整体替换（新增 `[presence]` 段）；若改过配置，保留原文件即可，缺失的段按默认值工作。
