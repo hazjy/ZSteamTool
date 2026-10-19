@@ -4,7 +4,7 @@
 
 ## 新增
 
-- **联机会话**：`opensteamtool.toml` 中 `[onlinefix] env_session = true`（默认开），GUI「联机」页选「宿主会话」启动即可走 Steam 官方大厅。
+- **联机会话（P2P 链路增强）**：`opensteamtool.toml` 中 `[onlinefix] env_session = true`（默认开）。GUI「联机」页选「宿主会话」启动时，会话身份在客户端、大厅与游戏侧保持一致，可创建并加入 Steam 官方大厅；此前的 `-onlinefix` 命令行路线只能拿到 480 会话、拿不到大厅。P2P 直连仍未打通，不属本版范围。
 - **好友广播开关**：`[presence] display = "spacewar"`（默认）或 `"none"`（关闭全部好友广播改写，仅用于排查）。
 - **快捷方式富状态**：无需配置。仅用 addappid 的单机游戏，游玩状态会以「非 Steam 游戏」形式广播，好友侧能看到游戏名。
 - **家庭共享许可分类**：无需配置。借来的游戏不再被记为已拥有，删改 lua 也不会让它从库中消失。
