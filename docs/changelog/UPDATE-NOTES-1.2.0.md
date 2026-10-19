@@ -43,3 +43,7 @@
 - 完全退出 Steam（托盘图标也要退出）。
 - 把 `Release\` 里的 `OpenSteamTool.dll`、`dwmapi.dll`、`xinput1_4.dll` 覆盖到 Steam 根目录（`steam.exe` 所在文件夹），覆盖前先备份原文件。
 - 重新启动 Steam。配置模板 `opensteamtool.toml` 可整体替换（新增 `[presence]` 段）；若改过配置，保留原文件即可，缺失的段按默认值工作。
+
+---
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

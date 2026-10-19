@@ -77,7 +77,7 @@ netpacket.log MMS dump … CreateLobby(6601) #1=… / CreateLobbyResponse(6602) 
 
 - **三件套**：`OpenSteamTool.dll` + `dwmapi.dll` + `xinput1_4.dll` → `<Steam>\`（GUI 的「内核」页可装；手工拷贝等价）。
 - **部署 Debug**（带日志，联机诊断必需）；Release 只用来保证"Release 也编得过"。
-- **部署件**：日常用 Release 构建（`发布包\测试版\ZSteamTool-v1.1.4+联机修复-20261017-r2.zip`，`4B9B789DE355…`）；需要日志排查时改用 `build\Debug` 的同名三件套。
+- **部署件**：日常用 Release 构建（`build\Release` 三件，或 `发布包\正式版\ZSteamTool-v1.2.0.zip` 里的 `Release\`）；需要日志排查时改用 `build\Debug` 的同名三件套。
 - **回滚**：重新构建，或从发布包取对应版本（回滚前先退出 Steam）。**备份是可选的省事手段**——预计还要反复回退/对照时，在 `内核备份\<日期>-<主题>\` 存一份三件套即可（省去每次重编，一次几分钟）；确认用不上就删。
 
 ## 5. 已知边界（别当 bug 查）

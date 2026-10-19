@@ -73,6 +73,8 @@ ZSteamTool 是一个注入 Steam 客户端的内核（三个 DLL），用来解�
 | `[lua] paths` | Lua 配置目录；**非空时只扫描这里**（GUI 改「Lua 路径」会自动写入本行并热重载），留空则用默认 `<Steam>\config\lua` |
 | `[inject]` | 可选的游戏进程注入（默认关） |
 | `[cloud]` | 可选云存档重定向（需自备 `cloud_redirect.dll`，默认关） |
+| `[presence]` | 未拥有游戏对好友的显示方式：`display = "spacewar"`（默认，播报真实游戏名）或 `"none"`（跳过全部广播改写，仅用于排查） |
+| `[onlinefix]` | 联机会话：`env_session = true`（默认）表示按宿主会话的身份工作，可与 Steam 官方大厅互通；`false` 只保留 `-onlinefix` 命令行路线 |
 | `[remote]` | 自定义元数据镜像（默认走内置镜像链：`git.lua.tools` 优先，另有 GitHub / jsDelivr 兜底；表按 DLL 哈希缓存，命中时不联网，例外情况见下文） |
 
 ## 可选外部组件：CloudRedirect（云存档重定向）
