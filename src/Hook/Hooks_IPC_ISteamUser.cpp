@@ -151,6 +151,12 @@ namespace {
                 if (auto fresh = EticketClient::FetchFreshEticket(appId, nonce, existingSteamId)) {
                     std::lock_guard<std::mutex> lock(g_freshEticketMutex);
                     g_freshEticket[appId] = std::move(*fresh);
+                } else {
+                    // 铸造失败时丢掉本会话内上一次启动留下的旧票：它绑的是旧 nonce，
+                    // 严格 Denuvo 会拒（88500012）。清掉后 GetEncryptedAppTicket 回落到
+                    // 凭据库票，行为与"从未铸造过"一致。
+                    std::lock_guard<std::mutex> lock(g_freshEticketMutex);
+                    g_freshEticket.erase(appId);
                 }
             }
         }
