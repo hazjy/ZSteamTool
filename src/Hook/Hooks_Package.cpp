@@ -94,6 +94,10 @@ namespace {
         g_licenseInitialized = true;
         g_licenseRefreshPending = true;
         TryProcessPendingLicenseRefresh();
+        // 注入只让 Steam"认为拥有"，并不会把未安装的 app 放进库：库的可见性由
+        // steamui 侧 CSteamApp 的 OwnershipFlags 决定，得由我们自己推一次（否则
+        // 未安装的游戏全部缺席，已安装的因为 acf 锚点仍能显示）。
+        Hooks_SteamUI::QueueAdditions(appIds);
         return true;
     }
 
@@ -247,6 +251,12 @@ namespace Hooks_Package {
             return;
         }
         LOG_PACKAGE_INFO("NotifyLicenseChanged: {} added, {} removed", addedIds.size(), removedCount);
+
+        // 新加载的 app 同样要推进库（见 InitFakeLicenseOnce 里的说明）。
+        if (!addedIds.empty()) {
+            std::vector<AppId_t> pushedAdditions(addedIds.begin(), addedIds.end());
+            Hooks_SteamUI::QueueAdditions(pushedAdditions);
+        }
 
         // Queue UI removals for the main-thread RunFrame hook to drain.
         // Never touch MarkAppChange from this (FileWatcher) thread.

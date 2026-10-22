@@ -6,6 +6,7 @@
 #include "steam_messages.pb.h"
 #include "Utils/HookSupport/VehCommon.h"
 #include <mutex>
+#include <algorithm>
 #include <unordered_set>
 #include <vector>
 
@@ -16,25 +17,88 @@ namespace
     CAPTURE_THIS_FUNC(GetAppByID, CSteamApp*, g_pController,void* pThis, AppId_t appId, bool bCreate);
     CAPTURE_THIS_FUNC(MarkAppChange,void*,g_pAppChangeSource,void* pThis,AppId_t appId, EAppChangeFlags changeFlags);
 
+    // 让一个 CSteamApp 看起来"已拥有"。库里的可见性由 OwnershipFlags 决定：
+    // 移除路径就是靠清掉它把 app 从库中摘除的，所以新增路径必须反过来把它补上，
+    // 否则未安装的 app（没有 acf 当锚点）永远不会出现在库里。
+    constexpr uint32 kActiveLicenseMask =
+        k_EAppOwnershipFlags_OwnsLicense |
+        k_EAppOwnershipFlags_FreeLicense |
+        k_EAppOwnershipFlags_SharedLicense;
+
+    inline void ApplyFakeOwnership(CSteamApp* pApp, AppId_t appId)
+    {
+        if (pApp->OwnershipFlags & k_EAppOwnershipFlags_LicenseLocked)
+        {
+            pApp->OwnershipFlags = static_cast<EAppOwnershipFlags>(
+                pApp->OwnershipFlags & ~k_EAppOwnershipFlags_LicenseLocked);
+        }
+        if ((pApp->OwnershipFlags & kActiveLicenseMask) == 0)
+        {
+            pApp->OwnershipFlags = static_cast<EAppOwnershipFlags>(
+                pApp->OwnershipFlags |
+                k_EAppOwnershipFlags_OwnsLicense |
+                k_EAppOwnershipFlags_LicensePermanent);
+        }
+        const uint32_t t = LuaConfig::GetPurchaseTime(appId);
+        if (t) pApp->PurchasedTime = t;
+    }
+
     HOOK_FUNC(FillInAppOverview, void *, void *pThis, void *pAppOverview, CSteamApp *pApp)
     {
         if (pApp && LuaConfig::HasDepot(pApp->nAppID, false))
         {
-            uint32_t t = LuaConfig::GetPurchaseTime(pApp->nAppID);
-            if (t)
-            {
-                pApp->PurchasedTime = t;
-                LOG_STEAMUI_TRACE("FillInAppOverview: set PurchasedTime={} for appId={}",
-                                  pApp->PurchasedTime, pApp->nAppID);
-            }
+            ApplyFakeOwnership(pApp, pApp->nAppID);
+            LOG_STEAMUI_TRACE("FillInAppOverview: forced ownership for appId={} flags=0x{:X} purchased={}",
+                              pApp->nAppID, static_cast<uint32>(pApp->OwnershipFlags), pApp->PurchasedTime);
         }
         return oFillInAppOverview(pThis, pAppOverview, pApp);
     }
 
-    // Apps to drop from the library: queued off-thread, marked on the UI thread.
+    // Library membership is queued off-thread (injection runs on a Steam thread) and
+    // applied on the UI thread: removals in CSteamUIAppControllerRunFrame, additions
+    // in FillInAppOverview / the same RunFrame drain.
     std::mutex g_removalMutex;
     std::vector<AppId_t> g_pendingRemovals;
     std::unordered_set<AppId_t> g_removedAppIds;
+    std::vector<AppId_t> g_pendingAdditions;
+    // 每帧最多推这么多，避免一次注入几百个 app 把 UI 卡住。
+    constexpr size_t kMaxAdditionsPerFrame = 64;
+
+    void DrainAdditions()
+    {
+        std::vector<AppId_t> batch;
+        size_t remaining = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_removalMutex);
+            if (g_pendingAdditions.empty()) return;
+            const size_t n = (std::min)(g_pendingAdditions.size(), kMaxAdditionsPerFrame);
+            batch.assign(g_pendingAdditions.begin(), g_pendingAdditions.begin() + n);
+            g_pendingAdditions.erase(g_pendingAdditions.begin(), g_pendingAdditions.begin() + n);
+            remaining = g_pendingAdditions.size();
+        }
+
+        size_t pushed = 0;
+        size_t unknown = 0;
+        for (AppId_t appId : batch)
+        {
+            // 只处理 steamui 已经认识的 app（CSteamApp 表由 appinfo 建立）。
+            // 绝不 bCreate：那会造出没有 appinfo 的空壳条目，正是 1.2.0 修过的崩溃来源。
+            CSteamApp* pApp = oGetAppByID(g_pController, appId, false);
+            if (!pApp)
+            {
+                ++unknown;
+                continue;
+            }
+            ApplyFakeOwnership(pApp, appId);
+            oMarkAppChange(g_pAppChangeSource, appId, EAppChangeFlags::AppInfoOrConfig);
+            ++pushed;
+        }
+        LOG_STEAMUI_DEBUG("RunFrame: pushed {} app(s) into the library overview ({} not in appinfo, {} pending)",
+                          pushed, unknown, remaining);
+    }
+
+    // Apps to drop from the library: queued off-thread, marked on the UI thread.
+    // (state declared above — shared by the addition path)
 
     // A full rebuild never lists removed_appid for apps still in the map
     // so re-assert our set after the snapshot is built.
@@ -61,6 +125,8 @@ namespace
     {
         if (CAPTURE_READY(GetAppByID) && CAPTURE_READY(MarkAppChange))
         {
+            DrainAdditions();
+
             std::vector<AppId_t> draining;
             {
                 std::lock_guard<std::mutex> lock(g_removalMutex);
@@ -133,5 +199,21 @@ namespace Hooks_SteamUI
         std::lock_guard<std::mutex> lock(g_removalMutex);
         std::erase(g_pendingRemovals, appId);
         g_removedAppIds.erase(appId);
+    }
+
+    void QueueAdditions(const std::vector<AppId_t>& appIds)
+    {
+        if (appIds.empty()) return;
+        std::lock_guard<std::mutex> lock(g_removalMutex);
+        for (AppId_t id : appIds)
+        {
+            if (std::ranges::find(g_pendingAdditions, id) == g_pendingAdditions.end())
+                g_pendingAdditions.push_back(id);
+            // 同一个 app 刚被排队移除又被加回来：移除作废。
+            std::erase(g_pendingRemovals, id);
+            g_removedAppIds.erase(id);
+        }
+        LOG_STEAMUI_DEBUG("QueueAdditions: {} id(s) queued, {} pending",
+                          appIds.size(), g_pendingAdditions.size());
     }
 }
