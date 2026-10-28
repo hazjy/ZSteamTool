@@ -24,7 +24,7 @@
 
 - 构建：VS18 自带 CMake + MSVC；Debug 产出 `build/Debug/{OpenSteamTool,dwmapi,xinput1_4}.dll`，Release 产出 `build/Release/` 同名三件。实际命令：`vcvars64.bat && cmake -S src -B build -G "Visual Studio 17 2022" -A x64 -T v145 && cmake --build build --config Debug`；依赖 `.deps/` 已预填，离线可用。⚠️ **本机 VS 实为 Visual Studio Community 2026（版本号 18，工具集 `v145`）**：生成器须用 `-G "Visual Studio 17 2022" -A x64 -T v145`；默认探测的 `v143`/`v180` 均报 MSB8020 且会挂死 TryCompile。
 - **字符集**：`target_compile_options(OpenSteamTool PRIVATE /utf-8)`（显式；Release 缺位曾致中文注释按 CP936 解码破坏语法，2026-09-10 修复）。
-- **依赖**：FetchContent 缓存 `.deps/`（lua/spdlog/protobuf/tomlplusplus/detours **人工预填**——本机拉不下来，原因与绕法见工作区根 `doc/开发踩坑-环境.md`）。
+- **依赖**：FetchContent 缓存 `.deps/`（lua/spdlog/protobuf/tomlplusplus/detours **人工预填**——本机拉不下来，原因与绕法见工作区根 `doc/开发经验-环境.md`）。
 - 部署：三个 DLL 复制到 Steam 根目录（覆盖前先备份原文件，回滚即拷回）；日志级别由 `opensteamtool.toml` 的 `[log] level` 控制，未设置时走内核默认；**日志只在 Debug 编入**（`OPENSTEAMTOOL_LOGGING_ENABLED`），Release 版无法用日志验证，只能靠行为确认。
 - **版本号两处手工同步**：仓库根 `VERSION`（给人/外部工具看的标记，**不参与构建**）与 `src/CMakeLists.txt` 的 `project(OpenSteamTool VERSION x.y.z)`（**唯一来源**）；configure 时按 `PROJECT_VERSION` 生成 `build/generated/OpenSteamToolBuildInfo.h`（`OPENSTEAMTOOL_VERSION`，供日志与诊断弹窗）与 `build/generated/version.rc`（DLL 的 Windows 版本资源，见 §2）；改完直接重配即可，**不需要清 CMake 缓存**（历史坑：早期 `OPENSTEAMTOOL_VERSION` 是 CACHE 变量，1.1.0 的 DLL 里烙着 1.0.0，见 `docs/changelog/UPDATE-NOTES-1.1.1.md`）。
 - 验证清单：① 重启 Steam 正常加载、入库/游玩无回归；② 功能点按修复记录逐项。
@@ -42,9 +42,9 @@
 
 ## 6. 环境坑（本机）
 
-- **记在工作区根 `doc/开发踩坑-环境.md`**（工作区级共用、不随本仓库分发）：schannel/TLS 与加速器干扰、`.deps` 为何要人工预填、受限终端推不上去、`cmake` 不在 PATH、`build.bat` 的 `extract_tickets` 报错等——**遇到"像代码 bug、其实是环境"的症状先查那里**。项目自身的构建事实（工具集、命令、依赖预填、部署）见 §3。
+- **记在工作区根 `doc/开发经验-环境.md`**（工作区级共用、不随本仓库分发）：schannel/TLS 与加速器干扰、`.deps` 为何要人工预填、受限终端推不上去、`cmake` 不在 PATH、`build.bat` 的 `extract_tickets` 报错等——**遇到"像代码 bug、其实是环境"的症状先查那里**。项目自身的构建事实（工具集、命令、依赖预填、部署）见 §3。
 
 ## 7. 文档与变更记录
 
 - **对外**（随仓库分发）：`README.md`（使用/安装/配置）、`docs/changelog/UPDATE-NOTES-*.md`（逐版本更新说明）、`NOTICE`（版权与第三方归属）；上游关系与移植记录见 git 提交信息。
-- **本地留存**（`.gitignore` 排除，不随仓库分发）：内部变更台账（`agents-log/`）、上游同步台账、客户端适配笔记；**本机环境与工具链的坑记在工作区根 `doc/开发踩坑-环境.md`**（本仓库内无副本，见 §6）。
+- **本地留存**（`.gitignore` 排除，不随仓库分发）：内部变更台账（`agents-log/`）、上游同步台账、客户端适配笔记；**本机环境与工具链的坑记在工作区根 `doc/开发经验-环境.md`**（本仓库内无副本，见 §6）。
