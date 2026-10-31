@@ -26,6 +26,7 @@
 - **字符集**：`target_compile_options(OpenSteamTool PRIVATE /utf-8)`（显式；Release 缺位曾致中文注释按 CP936 解码破坏语法，2026-09-10 修复）。
 - **依赖**：FetchContent 缓存 `.deps/`（lua/spdlog/protobuf/tomlplusplus/detours **人工预填**——本机拉不下来，原因与绕法见工作区根 `doc/开发经验-环境.md`）。
 - 部署：三个 DLL 复制到 Steam 根目录（覆盖前先备份原文件，回滚即拷回）；日志级别由 `opensteamtool.toml` 的 `[log] level` 控制，未设置时走内核默认；**日志只在 Debug 编入**（`OPENSTEAMTOOL_LOGGING_ENABLED`），Release 版无法用日志验证，只能靠行为确认。
+- **读日志**：每个 logger 都 `flush_on(trace)`（`src/Utils/Logging/Log.cpp`），所以 `opensteamtool\*.log` 是写即落盘——**文件是空的就等于那条代码路径真的没跑**，不必等 Steam 退出；但每个文件在 Steam 启动时被 `truncate` 重建，看到的只是**本次会话**（判"某功能没生效"前先确认本次会话确实触发过）。
 - **版本号两处手工同步**：仓库根 `VERSION`（给人/外部工具看的标记，**不参与构建**）与 `src/CMakeLists.txt` 的 `project(OpenSteamTool VERSION x.y.z)`（**唯一来源**）；configure 时按 `PROJECT_VERSION` 生成 `build/generated/OpenSteamToolBuildInfo.h`（`OPENSTEAMTOOL_VERSION`，供日志与诊断弹窗）与 `build/generated/version.rc`（DLL 的 Windows 版本资源，见 §2）；改完直接重配即可，**不需要清 CMake 缓存**（历史坑：早期 `OPENSTEAMTOOL_VERSION` 是 CACHE 变量，1.1.0 的 DLL 里烙着 1.0.0，见 `docs/changelog/UPDATE-NOTES-1.1.1.md`）。
 - 验证清单：① 重启 Steam 正常加载、入库/游玩无回归；② 功能点按修复记录逐项。
 
