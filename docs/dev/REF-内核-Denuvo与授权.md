@@ -19,13 +19,13 @@
   - `Hooks_IPC_ISteamUser.cpp` 的 `GetSteamID` 窗口门与所有权票源选择；
   - `AppTicket::GetSpoofSteamID`（`normal` 下**只认票据内身份**，忽略注册表那个旧 `compat` 运行写入的"当时登录账号"，否则窗口内身份与票据不符 → 012/54）；
   - `DenuvoAuth::WriteSteamIdOnEndAuthorization`（`normal` 下不写，消除身份随登录账号漂移的第二来源）。
-- **协议层边界（不可绕过）**：eticket 内的 SteamID 由 Valve 加密签名，**改不了**；若某标题确实需要整场以出票账号运行，其用户数据绑定出票账号即为必然——工具能做的是"默认安全 + 显式破例 + 提示"，不能消除该约束。
+- **协议层边界（不可绕过）**：eticket 内的 SteamID 由 Valve 加密签名，**改不了**；若某标题确实需要整场以出票账号运行，其用户数据绑定出票账号即为必然；工具能做的是"默认安全 + 显式破例 + 提示"，不能消除该约束。
 - **诊断方法（可复用）**：游戏侧 `saveRootPath` 行（逐次启动可见身份切换）> 内核 `ipc.log` 的 `GetSteamID ... -> Spoofed` 行。
 - GUI 侧读写入口与配置文件位置见工作区根 `doc/` 下的事实考证（GUI 侧）。
 
 ## 授权窗口与 eticket 时效模型（2026-09-08 考证，含用户实测）
 
-- **勘误**：①「30 分钟授权窗口」系误读——DenuvoAuth 的 authorization window 是**进程级一次性握手状态机**（首/二次握手开/关窗，无定时器）；README 的 30 分钟实为 **eticket 票据本身的 Steam 侧时效**（Steamworks `SteamEncryptedAppTicket_GetTicketIssueTime` 校验签发时间），**仅当"需要重新验证 eticket"时生效**。
+- **勘误**：①「30 分钟授权窗口」系误读：DenuvoAuth 的 authorization window 是**进程级一次性握手状态机**（首/二次握手开/关窗，无定时器）；README 的 30 分钟实为 **eticket 票据本身的 Steam 侧时效**（Steamworks `SteamEncryptedAppTicket_GetTicketIssueTime` 校验签发时间），**仅当"需要重新验证 eticket"时生效**。
 - ② **正确模型（用户考证 + 证据收敛）**：
   - **设备 token（本机激活许可）在 → Denuvo 不再验 eticket → 长期可玩**（游戏不更新即稳定，用户实测）；
   - token 缺失/失效（游戏或系统更新、换凭据）→ 重新激活 → 需**新鲜 eticket**（30 分钟时效，超期 Steam 验证不通过）→ 须现取（正版号在线 extract / EticketClient 在线铸造后端）。
