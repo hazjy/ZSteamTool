@@ -19,7 +19,7 @@ ZSteamTool — 版权与第三方归属声明
    Copyright (C) BetterSteamTools contributors
 
 本仓库对上述代码进行了修改（下载链路、D 加密身份模式、联机会话身份、分发层裁剪等）。
-修改内容与同步方式见 docs/dev/UPSTREAM-SYNC.md；逐版本变更见 docs/changelog/。
+修改内容与上游对齐方式见各次提交信息；逐版本变更见 docs/changelog/。
 
 二、第三方库
 ------------

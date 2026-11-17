@@ -1,6 +1,8 @@
 # REF-内核-Denuvo与授权（ZSteamTool 侧）
 
-> 只收 **DenuvoAuth / 授权与票据 / Denuvo 身份一致性 / eticket 时效**；分工与文档地图见工作区根 `README.md`。
+> 何时读：改 Denuvo 授权窗口、票据身份、排查 D 加密游戏存档或启动异常时。
+> 管什么：授权窗口与 eticket 时效模型、Denuvo 身份一致性、两种 `[denuvo] mode` 的语义、协议层边界。
+> 不写什么：模块 → 代码位置见 `DEV-NOTES.md` §2；GUI 侧读写入口见工作区 `doc/`。
 
 ---
 

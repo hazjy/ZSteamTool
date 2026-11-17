@@ -1,35 +1,61 @@
 # ZSteamTool 内核开发笔记（DEV-NOTES）
 
-> 何时读：接手内核仓库、改 hook / 模块边界、查构建部署或已知问题时。
-> 管什么：定位与仓库、架构速览、构建与部署、env-less 已知问题、DenuvoAuth 模块。
-> 不写什么：DenuvoAuth 的模式与协议边界见 `REF-内核-Denuvo与授权.md`；本机环境与工具链的坑见工作区根 `doc/开发经验.md` §五；上游对齐见 git 提交信息。
+> 何时读：接手内核、找某个功能在哪段代码、构建部署、查已知缺陷。
+> 管什么：项目概览、模块 → 代码位置、构建与部署、已知缺陷、文档地图。
+> 不写什么：Steam 侧机制与外部项目知识见 `REF-*`；上游对齐见 git 提交信息；本机工具链与构建踩坑见工作区 `doc/开发经验.md` §四 / §五。
 
-## 1. 定位与仓库
+## 1. 项目概览
 
-- 独立 git 仓库：单个 init 提交 = 上游 `2a08b0b` 源码 + onlinefix 480 三件套（LobbyInvite 改写 / 叠加层保持 480 / Persona 好友改写）；对齐基线 = BetterSteamTools `c7b435f`。职责是注入 Steam 的解锁内核（3 个 DLL），供 OSTGUI 的 `SteamDllService` 注入 / 卸载。
-- 上游对照源码本机已清理（2026-11-17 删 BST 与 OpenSteamTool 原版 clone，要对照按 `README.md` 的上游地址重拉）；内部台账与调研笔记本地留存（`.gitignore` 排除），对外只发 `README.md`、`docs/changelog/`、`NOTICE`。
+- 注入 Steam 客户端的解锁内核（三件 DLL），供 OSTGUI 的 `SteamDllService` 注入 / 卸载。内核只改 Steam 侧（许可、票据、网络包、库），不进游戏进程。
+- 代码来源：上游 OpenSteamTool `2a08b0b` + BetterSteamTools `c7b435f` 主体对齐 + 本地补丁；GPL-3.0，署名见 `LICENSE` / `NOTICE`。
+- 对外只发 `README.md`、`docs/changelog/`、`NOTICE`；本目录供开发与接手用。
 
-## 2. 架构速览
+## 2. 模块 → 代码位置
 
-- **入口** `src/dllmain.cpp`：`DLL_PROCESS_ATTACH` 只做 `DisableThreadLibraryCalls` + 起分离线程 `InitThread`（IO / LoadLibrary / Detour 全部移出 loader lock）；顺序：Log → 定位 steamclient/steamui → toml → 远程 pattern/IPC 元数据（GitHub→jsDelivr→本地缓存）→ Lua 解析 + 双 watcher → CoreHook → CloudRedirectHost。
-- **三 DLL 分工**：`dwmapi.dll` / `xinput1_4.dll` 为代理劫持（导出序号转发系统 DLL；进程为 steam.exe 时加载 `OpenSteamTool.dll`），后者为核心。
-- **Hook 双轨与分层**：Detours 事务式跳板（`HOOK_FUNC` / `INSTALL_HOOK_C/U`，可链式调原函数）+ VEH/int3 软断点（捕获 this 指针或只改参数）；分层：`Hooks_IPC`（Handshake + InterfaceCall，GetSteamID / 票据 / GetAppID / 接口 46 P2P 探测）｜`Hooks_NetPacket`（出站 `BBuildAndAsyncSendFrame` / 入站 `RecvPkt`，按 eMsg 分发）｜`Hooks_CallBack`｜`Hooks_Decryption`（`ConfigStoreGetBinary` 拦 depot 解密密钥）｜`Hooks_Manifest` / `KeyValues`（`BuildDepotDependency` 锁 GID）；支撑模块 `PipeManager` / `LuaConfig` / `SteamMetadata` / `OSTPlatform` / `Tickets`。
-- **联机会话身份（`-onlinefix`）**：默认 Spacewar(480)；`-onlinefix=<appid>` / `-onlinefix <appid>` 可指定，其余写法回落 480；身份由 `Hooks_Misc::SessionAppId()` 统一提供（外部 7 处 + 内部 2 处），一次只允许一个会话，进程退出即清。见 `REF-内核-联机会话.md`。
+| 模块 | 位置 | 职责 |
+|---|---|---|
+| 启动装配 | `src/dllmain.cpp`、`dllmain.h` | DllMain 只起分离线程；InitThread：Log → 定位 steamclient/steamui → toml → 远程元数据 → Lua 解析 + 双 watcher → CoreHook → CloudRedirectHost |
+| 代理劫持 | `src/dwmapi/`、`src/xinput1_4/` | 导出序号转发系统 DLL；进程是 steam.exe 时加载 `OpenSteamTool.dll` |
+| Hook 基建 | `src/Hook/HookMacros.h`、`HookManager.*`、`src/Utils/HookSupport/` | Detours 事务式跳板（可链式调原函数）+ VEH/int3 软断点（抓 this 指针或只改参数） |
+| IPC 接口 | `src/Hook/Hooks_IPC*.cpp` | Handshake + InterfaceCall：`GetSteamID`、票据、`GetAppID`、接口 46 P2P 探测 |
+| 网络包 | `src/Hook/Hooks_NetPacket.cpp` | 出站 `BBuildAndAsyncSendFrame` / 入站 `RecvPkt`，按 eMsg 与 target_job_name 分发：所有权票、清单请求码、统计、好友播报、家庭共享上报 |
+| 许可与包 | `src/Hook/Hooks_Package.cpp` | 假许可包（包 0）注入、`CheckAppOwnership` 改写、家庭共享分类与出借方归属 |
+| 库可见性 | `src/Hook/Hooks_SteamUI.cpp` | `CSteamApp.OwnershipFlags` 增删队列（每帧 ≤64），决定库里显示什么 |
+| 启动与身份 | `src/Hook/Hooks_Misc.cpp`、`Hooks_CallBack.cpp` | `SpawnProcess` 解析 `-onlinefix` 会话身份、`BuildSpawnEnvBlock`、`GetAppIDForCurrentPipe` 洗白、LobbyInvite 改写 |
+| 解密与清单 | `src/Hook/Hooks_Decryption.cpp`、`Hooks_Manifest.cpp`、`Hooks_KeyValues.cpp` | `ConfigStoreGetBinary` 拦 depot 密钥、`BuildDepotDependency` 锁 GID、KV 解析 |
+| 配置与 Lua | `src/Utils/Config/` | toml 读取 + 热重载；lua 解析（`addappid` / `addtoken` / `setManifestid`）+ 文件 watcher |
+| 元数据 | `src/Utils/SteamMetadata/` | 远程 pattern / IPC 元数据（RemoteToml、PatternLoader、IPCLoader）、镜像、清单请求码、统计、诊断 |
+| 票据 | `src/Utils/Tickets/` | `AppTicket`（伪造票与身份）、`EticketClient`（在线铸造，默认禁用）、`LegacyCDKey` |
+| 管道与进程 | `src/Pipe/` | 内核 ↔ 游戏进程命名管道协议、进程识别（env-less 兜底）；`Features/DenuvoAuth` 授权状态机 + PE 特征扫描、`Features/Injection` 库注入 |
+| 云存档 | `src/Utils/CloudRedirect/` | 与用户自备 `cloud_redirect.dll` 的宿主 shim |
+| 平台层 | `src/OSTPlatform/` | 进程、内存、PE、HTTP、日志、credential store 等 Windows 封装 |
+| 协议与结构 | `src/proto/steam_messages.proto`、`src/Steam/` | 消息 proto、结构体 / 枚举 / 回调定义；`Structs.h` 用 `static_assert` 锁偏移 |
+| 构建 | `src/CMakeLists.txt`、`src/cmake/` | 依赖与代码生成（protobuf、ipc_codegen、lua、spdlog、detours） |
 
 ## 3. 构建与部署
 
-- 构建：VS18 自带 CMake + MSVC；`vcvars64.bat && cmake -S src -B build -G "Visual Studio 17 2022" -A x64 -T v145 && cmake --build build --config Debug`；产物在 `build/Debug/` 与 `build/Release/`（三件 DLL），依赖 `.deps/` 已预填、离线可用。
-- 本机工具集：VS Community 2026（版本号 18、`v145`）；默认探测的 `v143` / `v180` 均报 MSB8020 且会挂死 TryCompile；`cmake` 不在 PATH 时用 VS 自带的 `Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin`。
-- **字符集**：`target_compile_options(OpenSteamTool PRIVATE /utf-8)` 显式声明（Release 缺位曾致中文注释按 CP936 解码破坏语法）。
-- 部署：三 DLL 复制到 Steam 根目录（覆盖前备份，回滚即拷回）；日志级别由 `opensteamtool.toml` 的 `[log] level` 控制。**日志只在 Debug 编入**，Release 只能靠行为确认；每个 logger `flush_on(trace)` 写即落盘，空文件等于那条路径没跑，但每次启动会 `truncate`、只留本次会话。验证：重启 Steam 正常加载、入库 / 游玩无回归，功能点按修复记录逐项。
-- **版本号两处手工同步**：仓库根 `VERSION`（给人看、不参与构建）与 `src/CMakeLists.txt` 的 `project(OpenSteamTool VERSION x.y.z)`（唯一来源）；configure 生成 `OpenSteamToolBuildInfo.h` 与 `version.rc`（DLL 的 Windows 版本资源，唯一版本外显通道）；改完重配即可，不必清 CMake 缓存。
+- 构建：VS 自带 CMake + MSVC；`vcvars64.bat && cmake -S src -B build -G "Visual Studio 17 2022" -A x64 -T v145 && cmake --build build --config Debug`；产物 `build/Debug/` 与 `build/Release/`（三件 DLL），`.deps/` 已预填、可离线。
+- 工具集：VS Community 2026（版本号 18、`v145`）；`v143` / `v180` 报 MSB8020 并挂死 TryCompile。cmake 路径、`.deps/` 预填与 `build.bat` 退码这些环境坑见 `doc/开发经验.md` §五。
+- 字符集：`target_compile_options(OpenSteamTool PRIVATE /utf-8)` 显式声明。
+- 部署：三 DLL 复制到 Steam 根目录，覆盖前备份、回滚即拷回；日志级别在 `opensteamtool.toml` 的 `[log] level`。
+- 日志：只在 Debug 编入，Release 只能靠行为确认；各 logger `flush_on(trace)` 写即落盘，空文件等于那条路径没跑，每次启动 `truncate` 只留本次会话。
+- 版本号两处手工同步：根 `VERSION`（给人看）与 `src/CMakeLists.txt` 的 `project(OpenSteamTool VERSION x.y.z)`（唯一来源）；configure 生成 `OpenSteamToolBuildInfo.h` 与 `version.rc`；改完重配即可，不必清缓存。
 
-## 4. 已知问题（env-less 启动器游戏）
+## 4. 已知缺陷
 
-- 现象：第三方启动器（Ubisoft Connect / Epic / Rockstar）拉起的游戏 exe 无 SteamAppId 环境变量 → `ProcessInspector` 判 `likelyGameProcess=false` → `DenuvoAuth::Apply` 直接 return → Denuvo 游戏静默退出（88500012 / error 54）。上游 PR #148 最小集已移植（PipeManager 兜底 + Lua `addprocess` 映射 + DenuvoAuth 门放宽，commit `135a110`），构建验证通过。
+| 缺陷 | 位置 | 说明 |
+|---|---|---|
+| `RecvPkt` 进程级全局缓冲无锁 | `Hooks_NetPacket.cpp:34-51` | 若回调可被多网络线程并发进入即为数据竞态（取决于 Steam 线程模型，未验证） |
+| 取码等待阻塞网络接收线程 | `Hooks_NetPacket.cpp:584,646` | 入站 147 在回调内 `wait_for(30s)`，`g_CodeFutures` 无淘汰上限 |
+| `BuildCompleteAppOverviewChange` 移除列表只增不减 | `Hooks_SteamUI.cpp:36,40-54` | 加入后被永久重复追加进 `removed_appid` |
+| `lua_addappid` 只校验密钥长度不校验 hex | `LuaConfig.cpp:219-221` | 坏密钥静默变成含 `0x00` 的密钥交给 Steam |
+| 858 处理段注释与实现矛盾 | `Hooks_NetPacket.cpp:474-487` | 注释称"legacy 非 protobuf 无 schema"，实现却 `ParseFromArray` |
+| env-less 启动器游戏静默退出 | `Pipe/` 与 `DenuvoAuth` | 第三方启动器拉起的 exe 无 `SteamAppId` → 判非游戏进程 → `DenuvoAuth::Apply` 直接 return（88500012 / error 54）；上游 PR #148 最小集已移植（`135a110`） |
 
-## 5. DenuvoAuth 模块（守门员）
+## 5. REF 索引
 
-- 定位：D 加密游戏「授权身份欺骗」的准入状态机，决定哪些游戏进程 / 管道可用伪装身份。
-- 流程：`Apply(ctx)` 门（gameProcess && trackedApp）→ `EnsureScanned` / `ScanProtection`（PE 特征判 Denuvo 并缓存）→ `OnHandshake`（None→Authorizing→EndAuthorization）。
-- 对外 `IsAuthorizedPipe` 是 Hooks_IPC 的伪装门槛；Authorizing 期提供伪装身份，EndAuthorization 后若游戏已入库则把 SteamID 写入注册表 `Apps\<appid>\SteamID`。模式、协议边界与诊断方法见 `REF-内核-Denuvo与授权.md`。
+| 文件 | 收什么 |
+|---|---|
+| `REF-内核-客户端适配.md` | Steam 客户端内部结构与 hook 面脆弱度、包层不可信来源、库可见性机制 |
+| `REF-内核-联机会话.md` | `-onlinefix` 身份与全链路一致化、大厅建不起来的服务端判定 |
+| `REF-内核-Denuvo与授权.md` | 授权窗口与 eticket 时效模型、Denuvo 身份一致性 |
