@@ -7,7 +7,7 @@
 ## 1. 定位与仓库
 
 - 独立 git 仓库：单个 init 提交 = 上游 `2a08b0b` 源码 + onlinefix 480 三件套（LobbyInvite 改写 / 叠加层保持 480 / Persona 好友改写）；对齐基线 = BetterSteamTools `c7b435f`。职责是注入 Steam 的解锁内核（3 个 DLL），供 OSTGUI 的 `SteamDllService` 注入 / 卸载。
-- 上游对照源码：`RefProjects/2-挂起/BetterSteamTools`（BST，下游）与 `2-挂起/OpenSteamTool`（原版，仅参考）；内部台账与调研笔记本地留存（`.gitignore` 排除），对外只发 `README.md`、`docs/changelog/`、`NOTICE`。
+- 上游对照源码本机已清理（2026-11-17 删 BST 与 OpenSteamTool 原版 clone，要对照按 `README.md` 的上游地址重拉）；内部台账与调研笔记本地留存（`.gitignore` 排除），对外只发 `README.md`、`docs/changelog/`、`NOTICE`。
 
 ## 2. 架构速览
 

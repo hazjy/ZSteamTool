@@ -88,7 +88,7 @@ ZSteamTool 是一个注入 Steam 客户端的内核（三个 DLL），用来解�
 | **维护仓库（改动在此）** | <https://github.com/hazjy/CloudRedirect> |
 | 保真参照（源码 = 上游最终版 v2.6.5，代码零改动） | <https://github.com/huanyuejue/CloudRedirect> —— 引用保真源码请用提交 **`bc5e38a`**；**别用它的 `v2.6.5` tag**（那指向该分支自己的 CI 提交） |
 | 永久归档 | Software Heritage（最近一次完整抓取 2026-08-20）：<https://archive.softwareheritage.org/browse/origin/?origin_url=https%3A%2F%2Fgithub.com%2FSelectively11%2FCloudRedirect> |
-| 本机克隆 | `RefProjects/2-挂起/CloudRedirect`（`origin` = 维护仓库；`preservation` = 保真参照） |
+| 本机克隆 | 无（2026-11-17 清理已删；要用时按上表重 clone） |
 
 两点注意：
 
