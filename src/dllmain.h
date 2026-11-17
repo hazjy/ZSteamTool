@@ -50,4 +50,9 @@ inline char ConfigPath[kRuntimePathCapacity]       = {};
 // ParseSessionAppId); runtime value via Hooks_Misc::SessionAppId().
 constexpr AppId_t kOnlineFixAppId = 480;
 
+// 家庭共享 + lua 的游戏在上报时改成这个 AppId，避免服务器按共享许可记账。
+// 取一个不可能存在的 ID：真实存在的 AppId 会被服务器照常播报出去，
+// 只有查不到的这个才既不占名额、也不出现在好友侧。
+constexpr AppId_t kFamilySharedMaskAppId = 0x7FFFFFFF;
+
 #endif // DLLMAIN_H

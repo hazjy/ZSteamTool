@@ -19,4 +19,8 @@ namespace Hooks_Package {
     // 不要用 IsOwned —— 否则家庭共享来的游戏会被当成"未拥有"而遭移除或跳过身份对齐。
     bool HasValidLicense(AppId_t appId);
 
+    // 查某个 AppId 记下的出借方 accountid，0 表示不是借来的、没有记录。
+    // 上报游玩状态时要把这个值填回 owner，服务器才认得出这是共享会话。
+    AccountID_t GetFamilySharedOwner(AppId_t appId);
+
 }

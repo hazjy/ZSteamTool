@@ -2,6 +2,7 @@
 #include "Utils/SteamMetadata/ManifestClient.h"
 #include "Utils/Config/Config.h"
 #include "Hooks_Misc.h"
+#include "Hooks_Package.h"
 #include "HookMacros.h"
 #include "dllmain.h"
 #include "Utils/Tickets/AppTicket.h"
@@ -588,11 +589,47 @@ namespace Hooks_NetPacket_OwnershipTicket {
 // ════════════════════════════════════════════════════════════════
 namespace Hooks_NetPacket_FamilySharing {
 
-    void ClearBody(const uint8*, uint32)
+    // 家庭共享的进出方向一概不干预，交给 Steam 按原生规则处理。
+    // 曾经在这里丢弃锁库与停玩通知（ClearBody），试图让借用方不受共享名额限制。
+    // 实测那套做法改不动服务器的账：服务器按自己记录的许可与占用判定，客户端
+    // 说什么它都不采信，一轮倒计时走完照样断开会话（返回码 6 = 别处登录），
+    // 反而因为上报数据和它的账对不上，把原本的软提醒升级成了断线。
+    // 现在只保留观测，不改任何内容：名额占用、到期收回都是共享本来的行为。
+
+    // 停玩通知里写着要停哪个 AppId、归属给谁、还剩多少秒，落盘便于排查。
+    void LogStopPlaying(const uint8* pBody, uint32 cbBody)
     {
-        LOG_NETPACKET_DEBUG("Clearing family sharing message...");
-        g_cbNewBody = 0;
-        g_NeedReplaceBody = true;
+        CMsgClientSharedLibraryStopPlaying msg;
+        if (!msg.ParseFromArray(pBody, cbBody)) {
+            LOG_NETPACKET_WARN("FamilySharing: StopPlaying body unparsable ({} bytes)", cbBody);
+            return;
+        }
+
+        // 正常一次只有一两条，这里仍然设上限：包由服务端给出，
+        // 万一内容异常也不该让日志字符串无界膨胀。
+        constexpr int kMaxLogged = 8;
+        std::string detail;
+        for (int i = 0; i < msg.stop_apps_size() && i < kMaxLogged; ++i) {
+            const auto& app = msg.stop_apps(i);
+            if (!detail.empty()) detail += ", ";
+            detail += std::format("app_id={} owner_id={}",
+                                  app.has_app_id() ? app.app_id() : 0,
+                                  app.has_owner_id() ? app.owner_id() : 0);
+        }
+        if (msg.stop_apps_size() > kMaxLogged) {
+            detail += std::format(", ...(+{})", msg.stop_apps_size() - kMaxLogged);
+        }
+        LOG_NETPACKET_INFO("FamilySharing: StopPlaying seconds_left={} stop_apps=[{}]",
+                           msg.has_seconds_left() ? msg.seconds_left() : -1, detail);
+    }
+
+    // 运行列表只记录不修改，用于确认服务器对占用名额的判定。
+    void LogRunningApps(const uint8* pBody, uint32 cbBody)
+    {
+        CFamilyGroupsClient_NotifyRunningApps_Notification notify;
+        if (!notify.ParseFromArray(pBody, cbBody)) return;
+        LOG_NETPACKET_DEBUG("FamilySharing: NotifyRunningApps (family_groupid {}, {} running apps)",
+                            notify.family_groupid(), notify.running_apps_size());
     }
 
 } // namespace Hooks_NetPacket_FamilySharing
@@ -1133,6 +1170,10 @@ namespace Hooks_NetPacket_OnlineFix {
         const bool broadcast = Hooks_NetPacket_RichPresence::BroadcastEnabled();
 
         bool patched = false;
+        // 广播改写过的条目单独打标记：下面家庭共享分支要按"报文里的 game_id
+        // 此刻是什么"来判断，广播段改过之后它自然不再是原来那个 appid，
+        // 不能再用 patched 兼作这个用途。
+        bool didBroadcastRewrite = false;
         for (int i = 0; broadcast && i < msg.games_played_size(); ++i) {
             auto* game = msg.mutable_games_played(i);
             AppId_t appid = static_cast<AppId_t>(game->game_id() & UINT32_MAX);
@@ -1147,6 +1188,7 @@ namespace Hooks_NetPacket_OnlineFix {
                     if (!name.empty()) {
                         game->set_game_extra_info(name);
                         patched = true;
+                        didBroadcastRewrite = true;
                         LOG_ONLINEFIX_INFO("OnlineFix: {} -> name '{}' (real appid {})",
                             session, name, realAppId);
                     }
@@ -1158,7 +1200,7 @@ namespace Hooks_NetPacket_OnlineFix {
         // 第一个快捷方式的 CGameID，服务器按"非 Steam 游戏"广播，好友侧即可看到游戏名；
         // 没有快捷方式时退回会话身份。触发面受 RichPresence 跟踪条件限制：只有
         // "栈顶不是会话身份、且该 appid 在 lua 里配过"时 g_PlayingAppId 才有值。
-        if (!patched && broadcast && msg.games_played_size() > 0) {
+        if (broadcast && !didBroadcastRewrite && msg.games_played_size() > 0) {
             const AppId_t trackedId = Hooks_NetPacket_RichPresence::g_PlayingAppId;
             if (trackedId != 0 && trackedId != Hooks_Misc::SessionAppId()) {
                 const std::string name = Hooks_Misc::GetGameNameByAppID(trackedId);
@@ -1167,11 +1209,71 @@ namespace Hooks_NetPacket_OnlineFix {
                     const uint64 shortcutId = FindShortcutGameId();
                     topGame->set_game_id(shortcutId ? shortcutId : kOnlineFixAppId);
                     topGame->set_game_extra_info(name);
+                    topGame->clear_owner_id();
                     patched = true;
+                    didBroadcastRewrite = true;
                     LOG_ONLINEFIX_INFO("RichPresence: appid {} -> name '{}' (game_id {})",
                                        trackedId, name, shortcutId ? "shortcut" : "480");
                 }
             }
+        }
+
+        // 家庭共享相关的上报处理，按「lua 里有没有」和「Steam 有没有把它当
+        // 借来的」两个条件分成四种情况：
+        //
+        //   自购 + lua      : 走正版路线，报文原样透传（为了补 DLC 才写的 lua）
+        //   家庭共享 + lua  : 改成占位 AppId。服务器只要看到真实 appid 就会按
+        //                     共享许可记账、占用出借方名额并下发停玩通知；
+        //                     换成别的 id 它就认不出来。开了好友播报时这条走不到，
+        //                     前面广播段已经把 game_id 改掉了。
+        //   纯 lua 假入库   : 清空归属，服务器查不到这条 AppId 的许可记录，不占名额
+        //   纯家庭共享      : 还原成真实出借方，让客户端和服务器账本对得上，
+        //                     否则倒计时走完会断线；名额按 Steam 规则正常占用
+        for (int i = 0; i < msg.games_played_size(); ++i) {
+            auto* game = msg.mutable_games_played(i);
+            const AppId_t playedAppId = static_cast<AppId_t>(game->game_id() & UINT32_MAX);
+            const AccountID_t reported = game->has_owner_id() ? game->owner_id() : 0;
+            const AccountID_t lender = Hooks_Package::GetFamilySharedOwner(playedAppId);
+            // inLua 传 true 会把已标记为真拥有的 AppId 排除掉：自购游戏写进
+            // lua 只是为了补 DLC，主游戏本身走正版路线，上报不能动它的报文。
+            const bool inLua = LuaConfig::HasDepot(playedAppId, true);
+
+            LOG_NETPACKET_DEBUG("FamilySharing: appid {} reported_owner={} lender_lookup={} inLua={}",
+                                playedAppId, reported, lender, inLua);
+
+            if (lender > 1 && inLua) {
+                // 共享游戏又写了 lua：改成占位 AppId 上报。服务器只要看到真实
+                // appid 就会按共享许可记账、占用出借方名额；换成别的 id 就认不出来。
+                // 这个 AppId 在服务器上不存在，所以既不会播报也不会记录时长。
+                game->set_game_id(kFamilySharedMaskAppId);
+                // 不填 game_extra_info：这个字段会被服务器拿去当播报的游戏名，
+                // 填上就等于告诉好友在玩什么，和「不播报」的目标相反。
+                game->clear_game_extra_info();
+                game->clear_owner_id();
+                patched = true;
+                LOG_NETPACKET_INFO("FamilySharing: appid {} -> {} (shared+lua, lender {})",
+                                   playedAppId, kFamilySharedMaskAppId, lender);
+                continue;
+            }
+
+            if (inLua) {
+                // 纯 lua 假入库：清空归属，服务器查不到这条 AppId 的许可就
+                // 不按共享许可记账。自购场景在这之前已经被 owned 拦掉了，
+                // 走到这里的都是真正靠假许可跑起来的游戏。
+                if (reported != 0) {
+                    game->clear_owner_id();
+                    patched = true;
+                }
+                continue;
+            }
+
+            if (lender <= 1 || reported == lender) continue;
+
+            // 只有共享、没写 lua：还原真实出借方
+            game->set_owner_id(lender);
+            patched = true;
+            LOG_NETPACKET_INFO("FamilySharing: Restoring owner_id {} -> {} for game_id {}",
+                               reported, lender, playedAppId);
         }
 
         if (!patched) return false;
@@ -1709,7 +1811,7 @@ namespace {
         switch (Fnv1aHash(targetJobName)) {
 
         case HASH_JOB_NotifyRunningApps:
-            Hooks_NetPacket_FamilySharing::ClearBody(pBody, cbBody);
+            Hooks_NetPacket_FamilySharing::LogRunningApps(pBody, cbBody);
             return;
 
         case HASH_JOB_GetUserStats:
@@ -1758,7 +1860,7 @@ namespace {
             return;
 
         case k_EMsgClientSharedLibraryStopPlaying:     // 9406
-            Hooks_NetPacket_FamilySharing::ClearBody(pBody, cbBody);
+            Hooks_NetPacket_FamilySharing::LogStopPlaying(pBody, cbBody);
             return;
 
         case k_EMsgClientPersonaState:                 // 766
