@@ -523,7 +523,18 @@ namespace Hooks_NetPacket_OwnershipTicket {
         }
 
         // Steam already returned a valid ticket (account owns it) — leave it.
-        if (resp.eresult() == k_EResultOK) return;
+        // But this is the one moment a genuine (owned / family-shared) session exposes
+        // a real Valve-signed ticket. Persist it into the credential store, otherwise
+        // switching to another account leaves the store empty and the auth window has
+        // nothing to serve but a forged ticket (88500000).
+        if (resp.eresult() == k_EResultOK) {
+            if (resp.has_ticket() && !resp.ticket().empty() &&
+                LuaConfig::HasDepot(resp.app_id()) && Hooks_Package::HasValidLicense(resp.app_id())) {
+                const std::vector<uint8_t> bytes(resp.ticket().begin(), resp.ticket().end());
+                AppTicket::CaptureServerAppTicket(resp.app_id(), bytes);
+            }
+            return;
+        }
         if (!LuaConfig::HasDepot(resp.app_id())) return;
 
         const int32 origEresult = resp.eresult();

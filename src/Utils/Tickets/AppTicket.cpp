@@ -169,6 +169,36 @@ namespace AppTicket {
         return true;
     }
 
+    bool CaptureServerAppTicket(AppId_t appId, const std::vector<uint8_t>& data) {
+        // A real Valve-signed ticket is what makes an account switch work: the bytes
+        // carry the issuing account's SteamID and signature, so the auth window can
+        // serve them verbatim and report the matching identity. Never persist
+        // something that fails the basic layout checks.
+        if (data.size() < kAppTicketMinimumValidSize || data.size() > 1024) {
+            LOG_WARN("CaptureServerAppTicket: AppId {} ticket size {} out of range, skip", appId, data.size());
+            return false;
+        }
+
+        const uint64_t steamId = ExtractSteamIdFromTicketBytes(data);
+        if (steamId == 0) {
+            LOG_WARN("CaptureServerAppTicket: AppId {} ticket has no SteamID, skip", appId);
+            return false;
+        }
+
+        std::vector<uint8_t> existing;
+        const auto status = OSTPlatform::SteamCredentialStore::GetAppTicket(appId, existing);
+        if (status == OSTPlatform::SteamCredentialStore::Status::Ok && existing == data) {
+            LOG_TRACE("CaptureServerAppTicket: AppId {} store already holds this ticket, skip", appId);
+            return false;
+        }
+
+        if (!WriteAppOwnershipTicket(appId, data)) return false;
+        WriteSteamID(appId, steamId);
+        LOG_INFO("CaptureServerAppTicket: AppId {} captured real ticket ({} bytes, steamid={})",
+                 appId, data.size(), steamId);
+        return true;
+    }
+
     uint64_t ExtractSteamIdFromTicketBytes(const std::vector<uint8_t>& ticket) {
         // Layout: ticket bytes start with [uint32 Size][uint32 Version][uint64 SteamID][...].
         if (ticket.size() < kSteamIdTicketMinimumSize) return 0;

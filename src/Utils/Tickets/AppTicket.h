@@ -55,4 +55,12 @@ namespace AppTicket {
 
     // Write authorized SteamID to Steam's local credential store.
     bool WriteSteamID(AppId_t appId, uint64_t steamId);
+
+    // Persist a server-issued (Valve-signed) ownership ticket into the credential
+    // store. Called when a genuine owner / family-shared session receives a real
+    // 858/ownership-ticket response, so a later account switch still has a valid
+    // ticket to serve inside the Denuvo authorization window.
+    // Skips the write when the stored bytes already match. Returns true when the
+    // store was actually updated.
+    bool CaptureServerAppTicket(AppId_t appId, const std::vector<uint8_t>& data);
 }

@@ -9,7 +9,9 @@
 #include "Hooks_Misc.h"
 #include "Utils/Config/LuaConfig.h"
 #include "Utils/Config/Config.h"
+#include "Hooks_Package.h"
 
+#include <algorithm>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -23,6 +25,25 @@ namespace {
     // keeping GetEncryptedAppTicket's credential-store serve as the fallback.
     std::mutex g_freshEticketMutex;
     std::unordered_map<AppId_t, std::vector<uint8_t>> g_freshEticket;
+
+    // Capture the ticket Steam itself just returned — only reached when the
+    // credential store had nothing to serve (the store branch above returns
+    // early otherwise). Gated on a genuine license so fake-library apps never
+    // persist a stale/forged ticket. Mirrors the 858 handler's capture, so a
+    // launch that only goes through IPC still fills the store.
+    void CaptureOrigOwnershipTicket(CUtlBuffer* pWrite, const GetAppOwnershipTicketExtendedDataReq& req, AppId_t appId)
+    {
+        if (!LuaConfig::HasDepot(appId) || !Hooks_Package::HasValidLicense(appId)) return;
+
+        GetAppOwnershipTicketExtendedDataResp orig{pWrite, static_cast<size_t>(req.cbMaxTicket())};
+        if (!orig.ok() || orig.returnValue() == 0) return;
+
+        const auto span = orig.pTicket();
+        const size_t size = (std::min)(span.size(), static_cast<size_t>(orig.returnValue()));
+        if (size < AppTicket::kAppTicketMinimumValidSize) return;
+
+        AppTicket::CaptureServerAppTicket(appId, std::vector<uint8_t>(span.data(), span.data() + size));
+    }
 
     // [Post-Handler]: IClientUser::GetSteamID
     void HandlerPost_IClientUser_GetSteamID(CPipeClient* pipe,CUtlBuffer* pRead, CUtlBuffer* pWrite)
@@ -83,7 +104,10 @@ namespace {
             LOG_IPC_DEBUG("IClientUser::GetAppOwnershipTicketExtendedData: AppId={} not in authorization window (normal mode), forge only", appId);
             ticketSource = AppTicket::AppTicketSource::ForgeOnly;
         }        
-        if (!AppTicket::GetAppOwnershipTicket(appId, ticket, ticketSource)) return;
+        if (!AppTicket::GetAppOwnershipTicket(appId, ticket, ticketSource)) {
+            CaptureOrigOwnershipTicket(pWrite, req, appId);
+            return;
+        }
 
         if (ticket.data.size() > static_cast<size_t>(req.cbMaxTicket())) {
             LOG_IPC_WARN("IClientUser::GetAppOwnershipTicketExtendedData: AppId={} ticket too large ({} bytes) for buffer ({} bytes)",
