@@ -33,6 +33,13 @@
 
 ---
 
+## steamui 签名表可能把两个函数指到同一个 RVA（2026-11-20 实测）
+
+- 当前 steamui（sha `2dfb0a5d…`）的表里 `FillInAppOverview` 与 `BuildCompleteAppOverviewChange` 都是 `0x634280`；前者的 sig 是后者的前缀截断（少了 `48 81 EC …` 那段）。
+- 后果一：两个钩子打在同一个函数上，实际只有一条生效。
+- 后果二：库里"来自您的 Steam 家庭库"横幅不跟 `CSteamApp` 的标志走。补归属身份、清 `SharedLicense` 位都试过，翻库也没有新的 `FillInAppOverview` 调用日志（`steamui.log` 全程只有启动那 4 行），说明这条渲染路径在 Steam 的新 UI 里已不由该函数提供数据。
+- 新版本的表（`1b9457…`）把两者分开了（`0x611BD0` / `0x6188C0`），换客户端后按新表走。
+
 ## 库可见性：注入许可 ≠ 进库（2026-10-22 实证）
 
 - **症状**：`InitFakeLicense` 报 `adding 528 apps` 成功、`CheckAppOwnership` 也返回拥有，但库里只出现**已安装**的游戏（有 `appmanifest_*.acf`），未安装的整批缺席。

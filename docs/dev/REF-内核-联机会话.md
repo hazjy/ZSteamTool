@@ -12,6 +12,7 @@
 - 解析：`SpawnProcess` 的 int3 回调读命令行：`-onlinefix`（默认 Spacewar 480）｜`-onlinefix=<appid>`（显式，推荐）｜`-onlinefix <appid>`；**非数字 / 0 / 超 uint32 一律回落 480**（`Hooks_Misc.cpp:41-60`）。同命令行出现 `-realappid` 时抑制本次 P2P appid 翻转。
 - 全链路 8 处身份一致化走 `Hooks_Misc::SessionAppId()`：① OptedInMask ② BuildSpawnEnvBlock（**只记日志不改值**，覆盖层保持 480，本地刻意与 BST 相反）③ LobbyInvite 改写 ④ 所有权票 appid 归一 ⑤ RichPresence topmost 排除 ⑥ Persona 好友 480→真实 ⑦ GamesPlayed 名字改写 ⑧ 调试日志。
 - 意图：免费联机游戏不止 480 一个，可换任意免费 AppID（含带 Steam Input 手柄配置者，解决 480 无手柄配置的问题）；**对端需同配**。
+- **会自检 appid 的游戏换身份就起不来**：个别游戏在初始化阶段校验"客户端报告的 appid 是否等于自己的 appid"，不符就静默退出，表现为无窗口、无报错、存档目录一条不写、系统日志无崩溃记录。实测 2026-11-17：Terraria（105600）走 `-onlinefix=480` 起来约 9 秒自退，改 `-onlinefix=105600` 正常进游戏。这类游戏直接启动即可（假许可已让客户端认成本 appid），换身份没有收益。
 
 ## 二、大厅为什么建不起来（2026-10-16 实证，机械狂欢 4108000）
 
