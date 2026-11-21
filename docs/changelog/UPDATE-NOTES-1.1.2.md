@@ -22,4 +22,4 @@ OSTGUI 设置页的「Lua 路径」写的就是 `[lua] paths`：填 Steam 目录
 
 - 里面若还写着 `paths = [".../config/stplug-in"]`（或任何空目录），新内核会**只扫那个目录**——把该行删掉或改成 `config/lua` 即可。
 
-> 相关文档：上游基线与本地改动见 `docs/dev/UPSTREAM-SYNC.md`；构建 / Lua API 等技术细节见 `docs/upstream/README-en.md`。
+> 相关文档：上游基线与本地改动见 git 提交信息。

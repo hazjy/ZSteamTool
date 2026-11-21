@@ -33,7 +33,7 @@
 
 - **`compat` 模式下"用户数据绑定出票账号"是协议层必然**：eticket 内的 SteamID 由 Valve 加密签名，无法伪造；若某标题确实需要整场以出票账号运行，其存档/云存档绑定该账号无法通过工具消除，只能手动迁移。
 - 若某标题在 `normal` 下启动报 **012 / 88500012**，说明它会在授权窗口外复验 SteamID → 将该游戏切到 `compat`（或在 lua 中 `forcedenuvo(appid)` 辅助识别）。
-- **Steam 客户端大更新预警（Beta #1788989629）** 仍在：请勿手动切换 Beta 通道，正式版当前链路可用（适配要点见 `docs/dev/UPSTREAM-SYNC.md` 的「Steam 客户端大更新」一节）。
+- **Steam 客户端大更新预警（Beta #1788989629）** 仍在：请勿手动切换 Beta 通道，正式版当前链路可用。
 - **下载**：请求码收口环境下正路仍是**清单投喂 depotcache**；第三方码源可恢复部分游戏下载，属外部依赖，稳定性与可用性自担。
 - **Denuvo**：设备 token 优先；eticket 在线铸造后端未启用（默认关闭，无网络请求）。
 
@@ -43,4 +43,4 @@
 
 替换 Steam 根目录下的 `OpenSteamTool.dll` / `dwmapi.dll` / `xinput1_4.dll` 三个文件（升级前建议备份旧文件），`opensteamtool.toml` 按需更新（补上 `[denuvo]` 段即可显式选择模式），重启 Steam 生效。
 
-> 相关文档：上游基线与本地改动见 `docs/dev/UPSTREAM-SYNC.md`；开发笔记 `docs/dev/DEV-NOTES.md`；构建 / Lua API / 兼容性等技术细节见 `docs/upstream/README-en.md`。
+> 相关文档：上游基线与本地改动见 git 提交信息；开发笔记 `docs/dev/DEV-NOTES.md`。

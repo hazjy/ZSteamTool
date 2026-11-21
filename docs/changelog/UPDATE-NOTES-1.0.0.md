@@ -26,7 +26,7 @@
 
 ## 已知限制
 
-- **Steam 客户端大更新预警（Beta #1788989629）**：客户端内部重构，Beta 通道强制更新；请勿手动切换 Beta 通道，正式版当前链路可用（适配要点见 `docs/dev/UPSTREAM-SYNC.md` 的「Steam 客户端大更新」一节）；
+- **Steam 客户端大更新预警（Beta #1788989629）**：客户端内部重构，Beta 通道强制更新；请勿手动切换 Beta 通道，正式版当前链路可用；
 - **下载依赖清单投喂**：服务器对非拥有账号的清单请求码签发受限，新游戏下载需将清单文件放入 `steam\depotcache\`（说明见仓库 README 的「本发行版相对上游的差异」一节）；
 - **Denuvo**：设备 token 优先；eticket 在线铸造后端未启用（默认关闭，无网络请求）。
 
@@ -36,4 +36,4 @@
 
 替换 Steam 根目录下的 `OpenSteamTool.dll` / `dwmapi.dll` / `xinput1_4.dll` 三个文件（升级前建议备份旧文件），`opensteamtool.toml` 按需更新，重启 Steam 生效。
 
-> 相关文档：上游基线与本地改动见 `docs/dev/UPSTREAM-SYNC.md`；开发笔记 `docs/dev/DEV-NOTES.md`；构建 / Lua API / 兼容性等技术细节见 `docs/upstream/README-en.md`。
+> 相关文档：上游基线与本地改动见 git 提交信息；开发笔记 `docs/dev/DEV-NOTES.md`。

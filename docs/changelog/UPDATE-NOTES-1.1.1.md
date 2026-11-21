@@ -18,4 +18,4 @@
 
 替换 Steam 根目录下的 `OpenSteamTool.dll` / `dwmapi.dll` / `xinput1_4.dll`（`Release\` 日常用、`Debug\` 排障用，日志在 `<Steam>\opensteamtool\`），重启 Steam 生效。已有的 `opensteamtool.toml` **无需改动**。
 
-> 相关文档：上游基线与本地改动见 `docs/dev/UPSTREAM-SYNC.md`；开发笔记 `docs/dev/DEV-NOTES.md`；构建 / Lua API / 兼容性等技术细节见 `docs/upstream/README-en.md`。
+> 相关文档：上游基线与本地改动见 git 提交信息；开发笔记 `docs/dev/DEV-NOTES.md`。
